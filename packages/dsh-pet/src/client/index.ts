@@ -125,6 +125,7 @@ export function apply(ctx: ClientContext): void {
   // Plugin configuration card: one staged form over the `pet` settings
   // namespace, contributed to the Web UI plugin group.
   const petSettings = new PetSettingsCardController(settingsScope)
+  ctx.effect(() => () => { petSettings.dispose() }, 'pet: settings card')
   ctx.slots.inject('web-ui.plugin.item', () => ctx.slots.register({
     name: 'web-ui.plugin.item',
     id: 'pet-settings',
@@ -272,6 +273,13 @@ export function apply(ctx: ClientContext): void {
       disposeUi = undefined
     }
   }
-  settingsScope.subscribe(syncUi)
-  syncUi()
+  ctx.effect(() => {
+    const unsubscribe = settingsScope.subscribe(syncUi)
+    syncUi()
+    return () => {
+      unsubscribe()
+      disposeUi?.()
+      disposeUi = undefined
+    }
+  }, 'pet: ui')
 }

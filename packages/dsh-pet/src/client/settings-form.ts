@@ -141,6 +141,7 @@ export class CardForm<T> {
   private readonly specs: Map<string, FieldSpec>
   private readonly staged = new Map<string, StagedEdit>()
   private readonly listeners = new Set<() => void>()
+  private readonly unsubscribe: () => void
   private saving = false
   private failed = false
 
@@ -150,7 +151,13 @@ export class CardForm<T> {
     specs: FieldSpec[],
   ) {
     this.specs = new Map(specs.map(spec => [spec.field, spec]))
-    scope.subscribe(() => { this.publish() })
+    this.unsubscribe = scope.subscribe(() => { this.publish() })
+  }
+
+  /** Release the bound settings subscription and projection listeners. */
+  dispose(): void {
+    this.unsubscribe()
+    this.listeners.clear()
   }
 
   /** Publish a projection of this form, rebuilt whenever the scope or a draft changes. */
