@@ -1,6 +1,7 @@
 /** Process-local registry retaining one immutable activity view per session. */
 
 import { selectPrimaryTask } from './primary-task.ts'
+import { sanitizeActivityText } from './sanitize.ts'
 import {
   PET_ACTIVITY_PROTOCOL_VERSION,
   petTaskId,
@@ -49,6 +50,26 @@ function isActive(phase: PetTaskPhase): boolean {
   return !['idle', 'done', 'failed'].includes(phase)
 }
 
+function safeOptional(value: string | undefined, maxChars: number): string | undefined {
+  if (value === undefined) return undefined
+  const safe = sanitizeActivityText(value, { maxChars })
+  return safe === '' ? undefined : safe
+}
+
+function safeTool(tool: PetTaskToolSnapshot | undefined): PetTaskToolSnapshot | undefined {
+  if (tool === undefined) return undefined
+  const name = sanitizeActivityText(tool.name, { maxChars: 24 }) || '工具'
+  const label = safeOptional(tool.label, 32)
+  const detail = safeOptional(tool.detail, 48)
+  return {
+    name,
+    ...(label === undefined ? {} : { label }),
+    ...(detail === undefined ? {} : { detail }),
+    activeCount: Math.max(0, Math.trunc(tool.activeCount)),
+    completedCount: Math.max(0, Math.trunc(tool.completedCount)),
+  }
+}
+
 /** Mutable owner of session activity; every public snapshot is copied. */
 export class ActivityRegistry {
   private readonly tasks = new Map<string, PetTaskSnapshot>()
@@ -58,6 +79,7 @@ export class ActivityRegistry {
   private sequence = 0
   private pinnedTaskId: string | undefined
   private focusedTaskId: string | undefined
+  private recentTaskId: string | undefined
 
   constructor(options: ActivityRegistryOptions = {}) {
     this.now = options.now ?? Date.now
@@ -73,24 +95,24 @@ export class ActivityRegistry {
     const phaseChanged = previous === undefined || previous.phase !== update.phase
     const terminal = update.phase === 'done' || update.phase === 'failed'
     const tokenUsage = update.tokenUsage ?? previous?.tokenUsage
+    const profile = safeOptional(update.profile ?? previous?.profile, 32)
+    const workspaceLabel = safeOptional(update.workspaceLabel ?? previous?.workspaceLabel, 48)
+    const title = safeOptional(update.title ?? previous?.title, 48)
+    const statusLine = safeOptional(update.statusLine, 48)
+    const narration = safeOptional(update.narration, 48)
+    const tool = safeTool(update.tool)
     const next: PetTaskSnapshot = {
       taskId,
       instanceId: update.instanceId,
       bootId: update.bootId,
       sessionId: update.sessionId,
-      ...(update.profile ?? previous?.profile) === undefined
-        ? {}
-        : { profile: update.profile ?? previous?.profile },
-      ...(update.workspaceLabel ?? previous?.workspaceLabel) === undefined
-        ? {}
-        : { workspaceLabel: update.workspaceLabel ?? previous?.workspaceLabel },
-      ...(update.title ?? previous?.title) === undefined
-        ? {}
-        : { title: update.title ?? previous?.title },
+      ...(profile === undefined ? {} : { profile }),
+      ...(workspaceLabel === undefined ? {} : { workspaceLabel }),
+      ...(title === undefined ? {} : { title }),
       phase: update.phase,
-      ...(update.statusLine === undefined ? {} : { statusLine: update.statusLine }),
-      ...(update.narration === undefined ? {} : { narration: update.narration }),
-      ...(update.tool === undefined ? {} : { tool: { ...update.tool } }),
+      ...(statusLine === undefined ? {} : { statusLine }),
+      ...(narration === undefined ? {} : { narration }),
+      ...(tool === undefined ? {} : { tool }),
       startedAt: previous?.startedAt ?? update.startedAt ?? updatedAt,
       phaseStartedAt: phaseChanged
         ? update.phaseStartedAt ?? updatedAt
@@ -102,6 +124,7 @@ export class ActivityRegistry {
       ...(tokenUsage === undefined ? {} : { tokenUsage: { ...tokenUsage } }),
     }
     this.tasks.set(taskId, next)
+    this.recentTaskId = taskId
     this.sequence += 1
     return cloneTask(next)
   }
@@ -113,6 +136,7 @@ export class ActivityRegistry {
     if (!removed) return false
     if (this.pinnedTaskId === taskId) this.pinnedTaskId = undefined
     if (this.focusedTaskId === taskId) this.focusedTaskId = undefined
+    if (this.recentTaskId === taskId) this.recentTaskId = undefined
     this.sequence += 1
     return true
   }
@@ -123,6 +147,7 @@ export class ActivityRegistry {
     this.tasks.clear()
     this.pinnedTaskId = undefined
     this.focusedTaskId = undefined
+    this.recentTaskId = undefined
     this.sequence += 1
   }
 
@@ -152,6 +177,7 @@ export class ActivityRegistry {
       nowMs: emittedAt,
       ...(this.pinnedTaskId === undefined ? {} : { pinnedTaskId: this.pinnedTaskId }),
       ...(this.focusedTaskId === undefined ? {} : { focusedTaskId: this.focusedTaskId }),
+      ...(this.recentTaskId === undefined ? {} : { recentTaskId: this.recentTaskId }),
       ...(this.failedPriorityMs === undefined ? {} : { failedPriorityMs: this.failedPriorityMs }),
     })
     const summary = {

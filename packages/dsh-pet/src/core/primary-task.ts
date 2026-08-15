@@ -7,6 +7,8 @@ export interface PrimaryTaskSelection {
   nowMs: number
   pinnedTaskId?: string
   focusedTaskId?: string
+  /** Registry-owned hint for the most recently updated active task. */
+  recentTaskId?: string
   /** How long a failed task receives urgent priority. */
   failedPriorityMs?: number
 }
@@ -56,6 +58,11 @@ export function selectPrimaryTask(
     ? undefined
     : tasks.find(task => task.taskId === options.focusedTaskId)
   if (focused !== undefined) return focused
+
+  const recent = options.recentTaskId === undefined
+    ? undefined
+    : tasks.find(task => task.taskId === options.recentTaskId && isActive(task))
+  if (recent !== undefined) return recent
 
   const active = mostRecent(tasks.filter(isActive))
   if (active !== undefined) return active

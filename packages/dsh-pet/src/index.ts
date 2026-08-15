@@ -86,9 +86,17 @@ export type {
   PetIntent,
   PetMotion,
 } from './core/intent.ts'
-export { narrateActivity } from './core/narration.ts'
+export { NarrationEngine, narrateActivity } from './core/narration.ts'
+export type {
+  NarrationContext,
+  NarrationDecision,
+  NarrationEngineOptions,
+  NarrationReason,
+} from './core/narration.ts'
 export { selectPrimaryTask } from './core/primary-task.ts'
 export type { PrimaryTaskSelection } from './core/primary-task.ts'
+export { sanitizeActivityText } from './core/sanitize.ts'
+export type { ActivityTextOptions } from './core/sanitize.ts'
 export {
   isPetTaskPhase,
   PET_ACTIVITY_PROTOCOL_VERSION,

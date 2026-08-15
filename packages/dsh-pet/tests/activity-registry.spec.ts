@@ -74,6 +74,16 @@ describe('ActivityRegistry', () => {
     expect(ids).toContain('v1:one:boot-b:same')
   })
 
+  it('uses receive order when concurrent events share a wall-clock millisecond', () => {
+    const registry = new ActivityRegistry({ now: () => 100 })
+    registry.update({ ...instance, sessionId: 'a', phase: 'thinking' })
+    registry.update({ ...instance, sessionId: 'b', phase: 'tool' })
+    expect(registry.snapshot().primaryTaskId).toBe(petTaskId({ ...instance, sessionId: 'b' }))
+
+    registry.update({ ...instance, sessionId: 'a', phase: 'review' })
+    expect(registry.snapshot().primaryTaskId).toBe(petTaskId({ ...instance, sessionId: 'a' }))
+  })
+
   it('removes disposed tasks and never leaks mutable snapshots', () => {
     const registry = new ActivityRegistry({ now: () => 100 })
     const identity = { ...instance, sessionId: 'a' }
