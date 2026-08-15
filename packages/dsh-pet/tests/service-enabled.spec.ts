@@ -144,6 +144,34 @@ function tempDir(): string {
 }
 
 describe('PetService (rc.6 session events)', () => {
+  it('keeps the initial browser state contract stable', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      expect(await service.state()).toEqual({
+        animation: 'idle',
+        phase: 'idle',
+        sessionActive: false,
+        affinity: {
+          points: 0,
+          rank: '幼鲸',
+          rankEmoji: '*',
+          pets: 0,
+          feeds: 0,
+          turns: 0,
+          petCooldown: false,
+          feedCooldown: false,
+        },
+        display: { visible: true, size: 160, right: 24, bottom: 20 },
+        name: '鲸鱼娘',
+        treats: { stocked: 0, max: 20 },
+      })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('stops consuming session events while disabled and resumes on re-enable', async () => {
     const ctx = new Context()
     const dir = tempDir()
