@@ -69,6 +69,44 @@ export {
 } from './persist.ts'
 export type { PetDisplayConfig, PetPersist } from './persist.ts'
 
+export { ActivityRegistry } from './core/activity-registry.ts'
+export type { ActivityRegistryOptions, PetTaskUpdate } from './core/activity-registry.ts'
+export {
+  createActivityProjectionRuntime,
+  displayToolName,
+  projectOfficialEvent,
+} from './core/activity-projection.ts'
+export type {
+  ActivityProjectionRuntime,
+  ProjectedActivity,
+} from './core/activity-projection.ts'
+export { mapActivityToIntent } from './core/intent.ts'
+export type {
+  PetExpression,
+  PetIntent,
+  PetMotion,
+} from './core/intent.ts'
+export { narrateActivity } from './core/narration.ts'
+export { selectPrimaryTask } from './core/primary-task.ts'
+export type { PrimaryTaskSelection } from './core/primary-task.ts'
+export {
+  isPetTaskPhase,
+  PET_ACTIVITY_PROTOCOL_VERSION,
+  petTaskId,
+} from './core/protocol.ts'
+export type {
+  PetActivityEnvelope,
+  PetActivityMessage,
+  PetAggregateSnapshot,
+  PetAggregateSummary,
+  PetInstanceDescriptor,
+  PetTaskIdentity,
+  PetTaskPhase,
+  PetTaskSnapshot,
+  PetTaskTokenUsage,
+  PetTaskToolSnapshot,
+} from './core/protocol.ts'
+
 export {
   makePetRoutes,
   petPackageRoot,
