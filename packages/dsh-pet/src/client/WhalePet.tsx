@@ -14,16 +14,12 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PetDisplayConfig } from '../persist.ts'
 import type { PetStateView } from '../service.ts'
 import type { PetFeedback } from './pet-store.ts'
-import { framePosition, FRAME_WIDTH, FRAME_HEIGHT, FRAME_COLUMNS, TRACKS, rowOfTrack, trimTrack, detectFrameCounts } from './spritesheet.ts'
-import type { PetAnimation } from '../state.ts'
+import { FRAME_HEIGHT } from './spritesheet.ts'
+import { SpritePetRenderer } from './renderers/sprite/SpritePetRenderer.ts'
 import { NS } from './locales.ts'
 import styles from './pet.module.css'
 
-/** Browser URL of the whale-girl atlas (served by the host half's own route). */
-export const PET_SPRITESHEET_URL = '/pet/whale/spritesheet.webp'
-
-/** Browser URL of the whale-girl manifest (authoritative per-row frame counts). */
-export const PET_MANIFEST_URL = '/pet/whale/pet.json'
+export { PET_SPRITESHEET_URL, PET_MANIFEST_URL } from './renderers/sprite/SpritePetRenderer.ts'
 
 /** Props injected by the slot registration (store actions + locale). */
 export interface WhalePetProps {
@@ -55,133 +51,62 @@ function clampOffset(value: number, max: number): number {
 }
 
 /**
- * The floating pet. The spritesheet frame advances on requestAnimationFrame
- * with per-frame durations from TRACKS; the atlas image is loaded once and
- * the background position is written straight to the sprite element (no
- * per-frame React state).
+ * The floating pet. React owns the interaction surface while the selected
+ * renderer owns model loading, animation timing, painting, and teardown.
  */
 export function WhalePet(props: WhalePetProps): ReactPortal {
   const { snapshot, display, feedback } = props
   const spriteRef = useRef<HTMLDivElement | null>(null)
+  const rendererRef = useRef<SpritePetRenderer | null>(null)
   const floatRef = useRef<HTMLDivElement | null>(null)
-  const [imageReady, setImageReady] = useState(false)
-  const [frameCounts, setFrameCounts] = useState<number[] | null>(null)
   const [hovered, setHovered] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const [dragPos, setDragPos] = useState<{ right: number; bottom: number } | null>(null)
   const dragRef = useRef<{ startX: number; startY: number; right: number; bottom: number } | null>(null)
   const hideTimerRef = useRef<number | null>(null)
-  const frameRef = useRef<{ track: PetAnimation | null; index: number; elapsed: number }>({
-    track: null,
-    index: 0,
-    elapsed: 0,
-  })
+  const spriteScale = display.size / FRAME_HEIGHT
+  const animation = snapshot?.animation ?? 'idle'
 
-  // Load the atlas once; then resolve per-row frame counts so tracks never
-  // play the transparent trailing cells of a short row. One decoded Image
-  // feeds both the sprite render and the frame-count detection. The counts
-  // prefer the authoritatively recorded `frames` field on the pet.json
-  // manifest route and only fall back to the getImageData atlas scan when
-  // that field is absent (older manifests).
+  // The current sprite renderer is the default/fallback implementation. It
+  // owns its browser resources behind the same boundary a future Live2D
+  // renderer will implement, so swapping engines cannot disturb interactions.
   useEffect(() => {
-    let cancelled = false
-    const img = new Image()
-    img.onload = () => {
-      if (cancelled) return
-      setImageReady(true)
-      fetch(PET_MANIFEST_URL)
-        .then((res) => (res.ok ? res.json() : Promise.resolve<{ frames?: unknown }>({})))
-        .then((manifest: { frames?: unknown }) => {
-          if (cancelled) return
-          const frames = manifest.frames
-          if (Array.isArray(frames) && frames.length === 9 && frames.every((n) => typeof n === 'number')) {
-            setFrameCounts(frames as number[])
-          } else {
-            setFrameCounts(detectFrameCounts(img))
-          }
-        })
-        .catch(() => {
-          if (!cancelled) setFrameCounts(detectFrameCounts(img))
-        })
+    const container = spriteRef.current
+    if (container === null) return
+    const renderer = new SpritePetRenderer()
+    rendererRef.current = renderer
+    renderer.setRenderScale(spriteScale)
+    renderer.setFpsLimit(animation === 'idle' ? 15 : 30)
+    renderer.applyAnimation(animation)
+    renderer.setPaused(document.visibilityState !== 'visible')
+    const onVisibility = (): void => {
+      renderer.setPaused(document.visibilityState !== 'visible')
     }
-    img.src = PET_SPRITESHEET_URL
+    document.addEventListener('visibilitychange', onVisibility)
+    void renderer.mount(container).catch(() => {
+      // The interaction surface remains mounted if the built-in asset cannot load.
+    })
     return () => {
-      cancelled = true
-      img.onload = null
+      document.removeEventListener('visibilitychange', onVisibility)
+      renderer.destroy()
+      if (rendererRef.current === renderer) rendererRef.current = null
     }
   }, [])
 
-  // Frame loop: advance the current track and write background-position.
-  // Offsets must be in SCALED coordinates (background-position applies to the
-  // scaled background image), so the current sprite scale rides a ref that
-  // the loop reads every tick. Under prefers-reduced-motion the sprite holds
-  // its track's first frame instead of animating (presentation-only; the
-  // animation state machine is untouched).
-  const spriteScale = display.size / FRAME_HEIGHT
-  const animation = snapshot?.animation ?? 'idle'
-  const scaleRef = useRef(spriteScale)
-  scaleRef.current = spriteScale
   useEffect(() => {
-    const reduceMotion = typeof window !== 'undefined'
-      && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
-    // Paint one static sprite frame up front either way, so the pet is never
-    // blank while the loop heat-up runs.
-    const row = rowOfTrack(animation)
-    const track = frameCounts === null
-      ? TRACKS[animation]
-      : trimTrack(TRACKS[animation], frameCounts[row] ?? TRACKS[animation].frames.length)
-    const leadCol = track.frames[0]!
-    const lead = framePosition(row, leadCol, scaleRef.current)
-    if (spriteRef.current !== null) {
-      spriteRef.current.style.backgroundPosition = `${lead.x}px ${lead.y}px`
-    }
-    if (reduceMotion) return
-    let raf = 0
-    let last = performance.now()
-    const tick = (ts: number): void => {
-      const delta = ts - last
-      last = ts
-      // Trim the track to the row's real frame count (transparent cells
-      // would render as a vanishing pet).
-      const row = rowOfTrack(animation)
-      const track = frameCounts === null
-        ? TRACKS[animation]
-        : trimTrack(TRACKS[animation], frameCounts[row] ?? TRACKS[animation].frames.length)
-      const st = frameRef.current
-      if (st.track !== animation) {
-        st.track = animation
-        st.index = 0
-        st.elapsed = 0
-      }
-      st.elapsed += delta
-      const maxIndex = track.frames.length - 1
-      while (st.elapsed >= (track.durations[st.index] ?? 0) && st.index < maxIndex) {
-        st.elapsed -= track.durations[st.index] ?? 0
-        st.index += 1
-      }
-      if (st.elapsed >= (track.durations[st.index] ?? 0)) {
-        if (track.loop) {
-          st.elapsed = 0
-          st.index = 0
-        } else {
-          st.index = maxIndex // hold the final frame; the host switches tracks
-        }
-      }
-      const col = track.frames[st.index]!
-      const { x, y } = framePosition(row, col, scaleRef.current)
-      if (spriteRef.current !== null) {
-        spriteRef.current.style.backgroundPosition = `${x}px ${y}px`
-      }
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [animation, frameCounts])
+    const renderer = rendererRef.current
+    renderer?.setFpsLimit(animation === 'idle' ? 15 : 30)
+    renderer?.applyAnimation(animation)
+  }, [animation])
+
+  useEffect(() => {
+    rendererRef.current?.setRenderScale(spriteScale)
+  }, [spriteScale])
 
   // Auto-clear the feedback bubble after its CSS animation. The callback
-  // rides a ref so re-renders never reset the timer: the 800ms poll rebuilds
-  // `props` every tick, and depending on it would starve the timeout.
+  // rides a ref so incoming host snapshots never reset the timer: depending
+  // on the callback prop would otherwise starve the timeout.
   const feedbackDoneRef = useRef(props.onFeedbackDone)
   feedbackDoneRef.current = props.onFeedbackDone
   useEffect(() => {
@@ -226,8 +151,6 @@ export function WhalePet(props: WhalePetProps): ReactPortal {
   }
 
   const pos = dragPos ?? { right: display.right, bottom: display.bottom }
-  const spriteWidth = Math.round(FRAME_WIDTH * spriteScale)
-  const spriteHeight = Math.round(FRAME_HEIGHT * spriteScale)
   const statusBubble = feedback === null && !hovered ? snapshot?.bubble : undefined
 
   const float = (
@@ -257,12 +180,6 @@ export function WhalePet(props: WhalePetProps): ReactPortal {
         ref={spriteRef}
         className={styles.sprite}
         style={{
-          width: spriteWidth,
-          height: spriteHeight,
-          backgroundImage: imageReady ? `url(${PET_SPRITESHEET_URL})` : undefined,
-          backgroundSize: `${FRAME_WIDTH * FRAME_COLUMNS * spriteScale}px ${FRAME_HEIGHT * 9 * spriteScale}px`,
-          backgroundRepeat: 'no-repeat',
-          backgroundPosition: '0 0',
           cursor: dragRef.current === null ? 'grab' : 'grabbing',
         }}
         onPointerDown={onPointerDown}
