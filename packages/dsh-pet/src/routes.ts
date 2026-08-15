@@ -21,6 +21,9 @@ export const PET_API_PREFIX = '/api/pet'
 /** Browser-facing base path of the pet asset routes. */
 export const PET_ASSET_PREFIX = '/pet/whale'
 
+/** Keep intermediary proxies and browsers from considering an idle stream dead. */
+export const PET_SSE_HEARTBEAT_MS = 15_000
+
 /** Relative (to package root) asset files exposed under the prefix. */
 const ASSET_FILES = [
   { name: 'spritesheet.webp', mime: 'image/webp' },
@@ -112,11 +115,65 @@ function postRoute(path: string, run: (body: Record<string, unknown>) => Promise
   }
 }
 
+/** Full-snapshot SSE stream; closing the request releases every listener and timer. */
+function eventStreamRoute(service: PetService): WebRoute {
+  return {
+    kind: 'exact',
+    path: `${PET_API_PREFIX}/events`,
+    handler: (req: IncomingMessage, res: ServerResponse): void => {
+      if (!requireMethod(req, res, 'GET')) return
+      res.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        'connection': 'keep-alive',
+        'x-accel-buffering': 'no',
+      })
+      res.flushHeaders?.()
+
+      let closed = false
+      let unsubscribe = (): void => undefined
+      let heartbeat: ReturnType<typeof setInterval> | undefined
+      const close = (): void => {
+        if (closed) return
+        closed = true
+        if (heartbeat !== undefined) clearInterval(heartbeat)
+        unsubscribe()
+        req.off('close', close)
+      }
+      const send = (snapshot: Awaited<ReturnType<PetService['state']>>): void => {
+        if (closed) return
+        try {
+          res.write(`data: ${JSON.stringify(snapshot)}\n\n`)
+        } catch {
+          close()
+        }
+      }
+      req.once('close', close)
+      const disposeSubscription = service.subscribeState(send)
+      if (closed) {
+        disposeSubscription()
+        return
+      }
+      unsubscribe = disposeSubscription
+      heartbeat = setInterval(() => {
+        if (closed) return
+        try {
+          res.write(': heartbeat\n\n')
+        } catch {
+          close()
+        }
+      }, PET_SSE_HEARTBEAT_MS)
+      heartbeat.unref?.()
+    },
+  }
+}
+
 /** Build the full route family (API + assets) for one service + package root. */
 export function makePetRoutes(deps: { service: PetService; packageRoot: string }): WebRoute[] {
   const { service, packageRoot } = deps
   const apiRoutes: WebRoute[] = [
     getRoute(`${PET_API_PREFIX}/state`, () => service.state()),
+    eventStreamRoute(service),
     postRoute(`${PET_API_PREFIX}/interact`, (body) => {
       const kind = body.kind as PetInteraction | undefined
       if (kind !== 'pet' && kind !== 'feed') return Promise.reject(new Error('invalid-kind'))

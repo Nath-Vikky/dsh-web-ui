@@ -33,8 +33,14 @@ class TestResponse {
     return this
   }
 
+  write(chunk: string | Buffer): boolean {
+    const next = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    this.body = Buffer.concat([this.body, next])
+    return true
+  }
+
   end(chunk?: string | Buffer): this {
-    if (chunk !== undefined) this.body = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    if (chunk !== undefined) this.write(chunk)
     this.finish()
     return this
   }
@@ -42,6 +48,7 @@ class TestResponse {
 
 interface ServiceStub {
   state: ReturnType<typeof vi.fn>
+  subscribeState: ReturnType<typeof vi.fn>
   interact: ReturnType<typeof vi.fn>
   setVisible: ReturnType<typeof vi.fn>
   setConfig: ReturnType<typeof vi.fn>
@@ -70,6 +77,10 @@ const stateView: PetStateView = {
 function serviceStub(): ServiceStub {
   return {
     state: vi.fn().mockResolvedValue(stateView),
+    subscribeState: vi.fn((listener: (snapshot: PetStateView) => void) => {
+      listener(stateView)
+      return () => undefined
+    }),
     interact: vi.fn().mockResolvedValue({ reaction: '好呀', delta: 1, affinity: stateView.affinity }),
     setVisible: vi.fn().mockResolvedValue({ ok: true, display: stateView.display }),
     setConfig: vi.fn().mockResolvedValue({ ok: true, display: stateView.display }),
@@ -104,6 +115,7 @@ describe('pet HTTP contract', () => {
 
     expect(routes.map(({ kind, path }) => ({ kind, path }))).toEqual([
       { kind: 'exact', path: '/api/pet/state' },
+      { kind: 'exact', path: '/api/pet/events' },
       { kind: 'exact', path: '/api/pet/interact' },
       { kind: 'exact', path: '/api/pet/set-visible' },
       { kind: 'exact', path: '/api/pet/set-config' },
@@ -111,6 +123,72 @@ describe('pet HTTP contract', () => {
       { kind: 'exact', path: '/pet/whale/spritesheet.webp' },
       { kind: 'exact', path: '/pet/whale/pet.json' },
     ])
+  })
+
+  it('streams full snapshots, heartbeats, and releases the listener on close', () => {
+    vi.useFakeTimers()
+    try {
+      const service = serviceStub()
+      const unsubscribe = vi.fn()
+      service.subscribeState.mockImplementation((listener: (snapshot: PetStateView) => void) => {
+        listener(stateView)
+        return unsubscribe
+      })
+      const routes = makePetRoutes({
+        service: service as unknown as PetService,
+        packageRoot: fileURLToPath(new URL('../', import.meta.url)),
+      })
+      const req = new TestRequest('GET')
+      const res = new TestResponse()
+
+      routeByPath(routes, '/api/pet/events').handler(
+        req as unknown as IncomingMessage,
+        res as unknown as ServerResponse,
+      )
+
+      expect(res.status).toBe(200)
+      expect(res.headers['content-type']).toBe('text/event-stream; charset=utf-8')
+      expect(res.body.toString('utf8')).toContain(`data: ${JSON.stringify(stateView)}\n\n`)
+      const beforeHeartbeat = res.body.byteLength
+      vi.advanceTimersByTime(15_000)
+      expect(res.body.byteLength).toBeGreaterThan(beforeHeartbeat)
+      expect(res.body.toString('utf8')).toContain(': heartbeat\n\n')
+
+      req.emit('close')
+      expect(unsubscribe).toHaveBeenCalledOnce()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not retain an SSE subscription when the initial write closes', () => {
+    vi.useFakeTimers()
+    try {
+      const service = serviceStub()
+      const unsubscribe = vi.fn()
+      service.subscribeState.mockImplementation((listener: (snapshot: PetStateView) => void) => {
+        listener(stateView)
+        return unsubscribe
+      })
+      const routes = makePetRoutes({
+        service: service as unknown as PetService,
+        packageRoot: fileURLToPath(new URL('../', import.meta.url)),
+      })
+      const req = new TestRequest('GET')
+      const res = new TestResponse()
+      vi.spyOn(res, 'write').mockImplementation(() => { throw new Error('closed') })
+
+      routeByPath(routes, '/api/pet/events').handler(
+        req as unknown as IncomingMessage,
+        res as unknown as ServerResponse,
+      )
+
+      expect(unsubscribe).toHaveBeenCalledOnce()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('returns the service state as same-origin JSON', async () => {

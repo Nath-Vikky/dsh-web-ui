@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -168,6 +168,56 @@ describe('PetService (rc.6 session events)', () => {
         treats: { stocked: 0, max: 20 },
       })
     } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('publishes complete snapshots and stops after unsubscribe', () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const session = makeSession('s1')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      const snapshots: Array<Awaited<ReturnType<PetService['state']>>> = []
+      const unsubscribe = service.subscribeState(snapshot => snapshots.push(snapshot))
+
+      expect(snapshots).toHaveLength(1)
+      expect(snapshots[0]).toMatchObject({ animation: 'idle', sessionActive: false })
+
+      ctx.emit('session/event', session, turnEnd(1, { kind: 'completed' }, 1))
+      expect(snapshots).toHaveLength(2)
+      expect(snapshots[1]).toMatchObject({
+        animation: 'jumping',
+        affinity: { turns: 1 },
+      })
+
+      unsubscribe()
+      ctx.emit('session/event', session, turnEnd(2, { kind: 'completed' }, 2))
+      expect(snapshots).toHaveLength(2)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('publishes the time-based return to idle without a compatibility poll', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    const ctx = new Context()
+    const dir = tempDir()
+    const session = makeSession('s1')
+    try {
+      const service = new PetService(ctx, { persistDir: dir, state: { celebrateMs: 100 } })
+      const snapshots: Array<Awaited<ReturnType<PetService['state']>>> = []
+      service.subscribeState(snapshot => snapshots.push(snapshot))
+
+      ctx.emit('session/event', session, turnEnd(1, { kind: 'completed' }, 1))
+      expect(snapshots.at(-1)).toMatchObject({ animation: 'jumping', bubble: '完成啦' })
+
+      await vi.advanceTimersByTimeAsync(101)
+      expect(snapshots.at(-1)).toMatchObject({ animation: 'idle' })
+      expect(snapshots.at(-1)?.bubble).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
       rmSync(dir, { recursive: true, force: true })
     }
   })

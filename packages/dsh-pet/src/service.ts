@@ -166,6 +166,9 @@ function legacyPhase(phase: PetTaskPhase): PetStateInput['phase'] {
   return phase === 'waiting_input' ? 'waiting' : phase
 }
 
+/** Listener used by event-driven web and desktop state adapters. */
+export type PetStateListener = (snapshot: PetStateView) => void
+
 /**
  * Cordis service exposing the pet RPC domain. Lazy: nothing is scanned or
  * written until a query or interaction arrives; event listeners update only
@@ -176,6 +179,7 @@ export class PetService extends Service {
   static inject: string[] = []
 
   private readonly machine: PetStateMachine
+  private readonly celebrateMs: number
   private readonly affinityConfig: AffinityConfig
   private readonly treatConfig: TreatConfig
   private readonly persistDir: string
@@ -192,6 +196,8 @@ export class PetService extends Service {
   /** Session whose most recent meaningful event currently drives the global pet. */
   private displaySession: Session | undefined
   private readonly sessionActivity = new WeakMap<Session, ActivityProjectionRuntime>()
+  private readonly stateListeners = new Set<PetStateListener>()
+  private presentationTimer: ReturnType<typeof setTimeout> | undefined
   private lastLegacyTurnRewardAt = 0
 
   constructor(ctx: Context, config: PetConfig = {}) {
@@ -199,10 +205,12 @@ export class PetService extends Service {
     this.persistDir = config.persistDir ?? petHomeDir()
     this.affinityConfig = { ...defaultAffinityConfig, ...(config.affinity ?? {}) }
     this.treatConfig = { ...defaultTreatConfig, ...(config.treats ?? {}) }
-    this.machine = new PetStateMachine({
+    const stateConfig = {
       ...defaultPetStateConfig,
       ...(config.state ?? {}),
-    })
+    }
+    this.machine = new PetStateMachine(stateConfig)
+    this.celebrateMs = stateConfig.celebrateMs
     this.activityRegistry = new ActivityRegistry()
     this.narrationEngine = new NarrationEngine()
     this.activityInstance = {
@@ -232,6 +240,17 @@ export class PetService extends Service {
     return this.activityRegistry.snapshot()
   }
 
+  /** Subscribe to complete state snapshots, including one synchronous initial value. */
+  subscribeState(listener: PetStateListener): () => void {
+    this.stateListeners.add(listener)
+    try {
+      listener(this.view())
+    } catch {
+      // A stream that closes during its initial write is already disposable.
+    }
+    return () => { this.stateListeners.delete(listener) }
+  }
+
   /** Current persisted display config (read-only view). */
   display(): PetDisplayConfig {
     return { ...this.persist.display }
@@ -247,9 +266,11 @@ export class PetService extends Service {
     this.enabled = enabled
     this.syncActivity()
     if (!enabled) {
+      this.clearPresentationTimer()
       this.activityRegistry.clear()
       this.narrationEngine.reset()
     }
+    this.publishState()
   }
 
   private syncActivity(): void {
@@ -284,6 +305,7 @@ export class PetService extends Service {
             if (payload.phase === 'done' && !runtime.officialEventsSeen) {
               this.rewardLegacyTurn()
             }
+            this.publishState()
             return
           }
 
@@ -298,12 +320,16 @@ export class PetService extends Service {
           if (transition.completedTurn !== undefined) {
             this.rewardTurn(String(session.id), transition.completedTurn)
           }
+          this.publishState()
         }),
         this.ctx.on('session/disposed', (session: Session) => {
           this.activityRegistry.remove(this.taskIdentity(session))
-          if (session !== this.displaySession) return
-          this.displaySession = undefined
-          this.machine.onSessionDisposed()
+          if (session === this.displaySession) {
+            this.clearPresentationTimer()
+            this.displaySession = undefined
+            this.machine.onSessionDisposed()
+          }
+          this.publishState()
         }),
       ]
       return () => { for (const dispose of disposers) dispose() }
@@ -345,6 +371,7 @@ export class PetService extends Service {
     this.displaySession = session
     this.machine.onActivityStatus(input)
     this.machine.onSessionActive()
+    this.schedulePresentationRefresh(activity.phase)
   }
 
   /** RPC: pet or feed the pet. */
@@ -374,6 +401,7 @@ export class PetService extends Service {
     if (outcome.accepted) {
       this.persist = { ...this.persist, affinity: outcome.affinity }
       this.flush()
+      this.publishState()
     }
     const affinity = this.affinityView(outcome.affinity)
     return { reaction: outcome.reaction, delta: outcome.delta, affinity }
@@ -384,6 +412,7 @@ export class PetService extends Service {
     this.persist = { ...this.persist, display: { ...this.persist.display, visible } }
     this.flush()
     this.syncSettingsFromPet()
+    this.publishState()
     return { ok: true, display: this.persist.display }
   }
 
@@ -396,6 +425,7 @@ export class PetService extends Service {
     this.persist = { ...this.persist, display: next }
     this.flush()
     this.syncSettingsFromPet()
+    this.publishState()
     return { ok: true, display: this.persist.display }
   }
 
@@ -407,6 +437,7 @@ export class PetService extends Service {
     this.persist = { ...this.persist, name: trimmed }
     this.flush()
     this.syncSettingsFromPet()
+    this.publishState()
     return { ok: true, name: trimmed }
   }
 
@@ -424,6 +455,7 @@ export class PetService extends Service {
     next.bottom = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.bottom)))
     this.persist = { ...this.persist, display: next, name: section.name.trim() }
     this.flush()
+    this.publishState()
   }
 
   /** Mirror the persisted display config into the settings document (best-effort). */
@@ -520,6 +552,36 @@ export class PetService extends Service {
       turns: affinity.turns,
       petCooldown: nowMs - affinity.lastPetAt < this.affinityConfig.petCooldownMs,
       feedCooldown: nowMs - affinity.lastFeedAt < this.affinityConfig.feedCooldownMs,
+    }
+  }
+
+  /** Publish the time-based end of a completion pose without browser polling. */
+  private schedulePresentationRefresh(phase: PetTaskPhase): void {
+    this.clearPresentationTimer()
+    if (phase !== 'done') return
+    this.presentationTimer = setTimeout(() => {
+      this.presentationTimer = undefined
+      this.publishState()
+    }, this.celebrateMs + 1)
+    this.presentationTimer.unref?.()
+  }
+
+  private clearPresentationTimer(): void {
+    if (this.presentationTimer === undefined) return
+    clearTimeout(this.presentationTimer)
+    this.presentationTimer = undefined
+  }
+
+  /** Publish one fully settled snapshot; one faulty adapter cannot break others. */
+  private publishState(): void {
+    if (this.stateListeners.size === 0) return
+    const snapshot = this.view()
+    for (const listener of [...this.stateListeners]) {
+      try {
+        listener(snapshot)
+      } catch {
+        // Adapter callbacks are isolated from the Agent activity path.
+      }
     }
   }
 
