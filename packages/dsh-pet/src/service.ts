@@ -7,8 +7,22 @@
  * @module @linxin666/dsh-pet/service
  */
 
+import { randomUUID } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import {
+  createActivityProjectionRuntime,
+  projectOfficialEvent,
+  type ActivityProjectionRuntime,
+  type ProjectedActivity,
+} from './core/activity-projection.ts'
+import { ActivityRegistry } from './core/activity-registry.ts'
+import {
+  isPetTaskPhase,
+  type PetAggregateSnapshot,
+  type PetTaskIdentity,
+  type PetTaskPhase,
+} from './core/protocol.ts'
 import {
   applyInteraction,
   applyTurnReward,
@@ -55,6 +69,17 @@ export interface PetConfig {
   persistDir?: string
   /** Master switch for the plugin (browser half + host routes). */
   enabled?: boolean
+  /** Optional process metadata used by the multi-task activity snapshot. */
+  activity?: {
+    /** Host instance identity; generated for this service when omitted. */
+    instanceId?: string
+    /** Process-start identity; generated for this service when omitted. */
+    bootId?: string
+    /** Human-readable DSH profile label. */
+    profile?: string
+    /** Optional safe workspace label. */
+    workspaceLabel?: string
+  }
 }
 
 /**
@@ -135,110 +160,9 @@ interface ActivityStatusEventLike {
   phrase?: string
 }
 
-/** Per-session facts needed to project the official event stream. */
-interface SessionActivityRuntime {
-  activeTools: Set<string>
-  officialEventsSeen: boolean
-  stepHadFailure: boolean
-}
-
-/** One official event projection, optionally carrying a completed turn reward. */
-interface PetActivityTransition {
-  input: PetStateInput
-  completedTurn?: number
-}
-
-/** Keep tool names readable inside the compact status bubble. */
-function displayToolName(name: string): string {
-  const compact = name.replace(/\s+/g, ' ').trim() || '工具'
-  return compact.length <= 24 ? compact : `${compact.slice(0, 21)}...`
-}
-
-/** Whether a legacy phase is part of the pet's supported vocabulary. */
-function isActivityPhase(phase: string): phase is PetStateInput['phase'] {
-  return ['idle', 'waiting', 'thinking', 'tool', 'review', 'done', 'failed'].includes(phase)
-}
-
-/**
- * Project the durable DSH session vocabulary into the pet's visual phases.
- * Unknown and log-only events do not disturb the last meaningful activity.
- */
-function projectOfficialEvent(
-  event: SessionEvent,
-  runtime: SessionActivityRuntime,
-): PetActivityTransition | undefined {
-  switch (event.type) {
-    case 'turn/start':
-      runtime.activeTools.clear()
-      runtime.stepHadFailure = false
-      return { input: { phase: 'waiting', line: '准备开始' } }
-    case 'step/start':
-      runtime.activeTools.clear()
-      runtime.stepHadFailure = false
-      return { input: { phase: 'waiting', line: '等待模型响应' } }
-    case 'assistant/chunk': {
-      const { chunk } = event.data
-      if (chunk.type === 'reasoning-delta' && chunk.text.length > 0) {
-        return { input: { phase: 'thinking', line: '正在思考' } }
-      }
-      if (chunk.type === 'text-delta' && chunk.text.length > 0) {
-        return { input: { phase: 'review', line: '整理回复中' } }
-      }
-      return undefined
-    }
-    case 'assistant/message':
-      return { input: { phase: 'review', line: '整理回复中' } }
-    case 'tool/call':
-      runtime.activeTools.add(String(event.data.callId))
-      return {
-        input: {
-          phase: 'tool',
-          line: `正在使用 ${displayToolName(event.data.name)}`,
-        },
-      }
-    case 'tool/result': {
-      const block = event.data.message.content[0]
-      runtime.activeTools.delete(String(event.data.message.source.callId))
-      runtime.stepHadFailure ||= event.data.error !== undefined || block.isError === true
-      if (runtime.activeTools.size > 0) {
-        return {
-          input: {
-            phase: 'tool',
-            line: `还有 ${runtime.activeTools.size} 个工具运行中`,
-          },
-        }
-      }
-      return runtime.stepHadFailure
-        ? { input: { phase: 'failed', line: '工具执行失败' } }
-        : { input: { phase: 'thinking', line: '处理工具结果' } }
-    }
-    case 'turn/end': {
-      runtime.activeTools.clear()
-      switch (event.data.reason.kind) {
-        case 'completed':
-          return {
-            input: { phase: 'done', line: '完成啦' },
-            completedTurn: event.data.turn,
-          }
-        case 'error':
-          return { input: { phase: 'failed', line: '执行失败' } }
-        case 'max-tokens':
-          return { input: { phase: 'failed', line: '达到输出上限' } }
-        case 'interrupted':
-          return { input: { phase: 'failed', line: '执行意外中断' } }
-        case 'blocked':
-          return { input: { phase: 'waiting', line: '等待继续' } }
-        case 'aborted':
-          return { input: { phase: 'idle', line: '已停止' } }
-        default:
-          // TurnEndReasonMap is merge-extensible; a newer ending must not
-          // leave the pet showing stale in-progress work.
-          return { input: { phase: 'idle' } }
-      }
-    }
-    default:
-      return undefined
-  }
+/** Map the extended Core vocabulary onto the unchanged sprite state machine. */
+function legacyPhase(phase: PetTaskPhase): PetStateInput['phase'] {
+  return phase === 'waiting_input' ? 'waiting' : phase
 }
 
 /**
@@ -254,6 +178,10 @@ export class PetService extends Service {
   private readonly affinityConfig: AffinityConfig
   private readonly treatConfig: TreatConfig
   private readonly persistDir: string
+  private readonly activityRegistry: ActivityRegistry
+  private readonly activityInstance: Omit<PetTaskIdentity, 'sessionId'>
+  private readonly activityProfile: string | undefined
+  private readonly activityWorkspaceLabel: string | undefined
   private persist: PetPersist
   /** Completed turns already rewarded, per session (turn numbers are per-session). */
   private rewardedTurns = new Map<string, number>()
@@ -261,7 +189,7 @@ export class PetService extends Service {
   private disposeActivity: (() => void) | undefined
   /** Session whose most recent meaningful event currently drives the global pet. */
   private displaySession: Session | undefined
-  private readonly sessionActivity = new WeakMap<Session, SessionActivityRuntime>()
+  private readonly sessionActivity = new WeakMap<Session, ActivityProjectionRuntime>()
   private lastLegacyTurnRewardAt = 0
 
   constructor(ctx: Context, config: PetConfig = {}) {
@@ -273,6 +201,13 @@ export class PetService extends Service {
       ...defaultPetStateConfig,
       ...(config.state ?? {}),
     })
+    this.activityRegistry = new ActivityRegistry()
+    this.activityInstance = {
+      instanceId: config.activity?.instanceId ?? randomUUID(),
+      bootId: config.activity?.bootId ?? randomUUID(),
+    }
+    this.activityProfile = config.activity?.profile
+    this.activityWorkspaceLabel = config.activity?.workspaceLabel
     this.persist = loadPetPersist(this.persistDir)
     this.enabled = config.enabled ?? true
 
@@ -289,6 +224,11 @@ export class PetService extends Service {
     return this.view()
   }
 
+  /** Full multi-session activity snapshot for future web and desktop adapters. */
+  activitySnapshot(): PetAggregateSnapshot {
+    return this.activityRegistry.snapshot()
+  }
+
   /** Current persisted display config (read-only view). */
   display(): PetDisplayConfig {
     return { ...this.persist.display }
@@ -303,6 +243,7 @@ export class PetService extends Service {
   setEnabled(enabled: boolean): void {
     this.enabled = enabled
     this.syncActivity()
+    if (!enabled) this.activityRegistry.clear()
   }
 
   private syncActivity(): void {
@@ -320,9 +261,14 @@ export class PetService extends Service {
           // Harness installations publish the official session vocabulary.
           if ((event.type as string) === 'activity/status') {
             const payload = ((event as unknown as { data?: unknown }).data ?? {}) as ActivityStatusEventLike
-            if (typeof payload.phase !== 'string' || !isActivityPhase(payload.phase)) return
-            this.applyActivity(session, {
+            if (typeof payload.phase !== 'string' || !isPetTaskPhase(payload.phase)) return
+            const activity: ProjectedActivity = {
               phase: payload.phase,
+              ...(typeof payload.line === 'string' ? { statusLine: payload.line } : {}),
+              ...(typeof payload.phrase === 'string' ? { narration: payload.phrase } : {}),
+            }
+            this.applyActivity(session, activity, {
+              phase: legacyPhase(payload.phase),
               ...(typeof payload.line === 'string' ? { line: payload.line } : {}),
               ...(typeof payload.phrase === 'string' ? { phrase: payload.phrase } : {}),
             })
@@ -338,12 +284,17 @@ export class PetService extends Service {
           const transition = projectOfficialEvent(event, runtime)
           if (transition === undefined) return
           runtime.officialEventsSeen = true
-          this.applyActivity(session, transition.input)
+          this.applyActivity(session, transition, {
+            phase: legacyPhase(transition.phase),
+            ...(transition.statusLine === undefined ? {} : { line: transition.statusLine }),
+            ...(transition.narration === undefined ? {} : { phrase: transition.narration }),
+          })
           if (transition.completedTurn !== undefined) {
             this.rewardTurn(String(session.id), transition.completedTurn)
           }
         }),
         this.ctx.on('session/disposed', (session: Session) => {
+          this.activityRegistry.remove(this.taskIdentity(session))
           if (session !== this.displaySession) return
           this.displaySession = undefined
           this.machine.onSessionDisposed()
@@ -354,21 +305,37 @@ export class PetService extends Service {
   }
 
   /** Return the projection state associated with one live session. */
-  private activityRuntime(session: Session): SessionActivityRuntime {
+  private activityRuntime(session: Session): ActivityProjectionRuntime {
     let runtime = this.sessionActivity.get(session)
     if (runtime === undefined) {
-      runtime = {
-        activeTools: new Set(),
-        officialEventsSeen: false,
-        stepHadFailure: false,
-      }
+      runtime = createActivityProjectionRuntime()
       this.sessionActivity.set(session, runtime)
     }
     return runtime
   }
 
-  /** Commit one activity as the host-global pet's most recent display state. */
-  private applyActivity(session: Session, input: PetStateInput): void {
+  /** Build the protocol identity for one local session. */
+  private taskIdentity(session: Session): PetTaskIdentity {
+    return { ...this.activityInstance, sessionId: String(session.id) }
+  }
+
+  /** Update Core and the unchanged host-global compatibility state. */
+  private applyActivity(
+    session: Session,
+    activity: ProjectedActivity,
+    input: PetStateInput,
+  ): void {
+    this.activityRegistry.update({
+      ...this.taskIdentity(session),
+      ...(this.activityProfile === undefined ? {} : { profile: this.activityProfile }),
+      ...(this.activityWorkspaceLabel === undefined
+        ? {}
+        : { workspaceLabel: this.activityWorkspaceLabel }),
+      phase: activity.phase,
+      ...(activity.statusLine === undefined ? {} : { statusLine: activity.statusLine }),
+      ...(activity.narration === undefined ? {} : { narration: activity.narration }),
+      ...(activity.tool === undefined ? {} : { tool: activity.tool }),
+    })
     this.displaySession = session
     this.machine.onActivityStatus(input)
     this.machine.onSessionActive()

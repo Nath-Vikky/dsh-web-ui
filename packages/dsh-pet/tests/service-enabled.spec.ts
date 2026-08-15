@@ -321,6 +321,48 @@ describe('PetService (rc.6 session events)', () => {
     }
   })
 
+  it('retains every live session in the new activity snapshot without changing the legacy view', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const sessionA = makeSession('s-a')
+    const sessionB = makeSession('s-b')
+    try {
+      const service = new PetService(ctx, {
+        persistDir: dir,
+        activity: {
+          instanceId: 'web-profile',
+          bootId: 'boot-test',
+          profile: 'web',
+        },
+      })
+
+      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+        type: 'reasoning-delta', index: 0, text: 'A',
+      }, 1))
+      ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
+
+      expect(await service.state()).toMatchObject({
+        animation: 'running-right',
+        bubble: '正在使用 search',
+      })
+      expect(service.activitySnapshot()).toMatchObject({
+        protocolVersion: 1,
+        sequence: 2,
+        summary: { active: 2, waiting: 0, failed: 0, completedRecently: 0 },
+        tasks: [
+          { instanceId: 'web-profile', bootId: 'boot-test', profile: 'web' },
+          { instanceId: 'web-profile', bootId: 'boot-test', profile: 'web' },
+        ],
+      })
+      expect(service.activitySnapshot().tasks.map(task => task.sessionId).sort()).toEqual(['s-a', 's-b'])
+
+      ctx.emit('session/disposed', sessionB)
+      expect(service.activitySnapshot().tasks.map(task => task.sessionId)).toEqual(['s-a'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('clears an aborted turn without rewarding it', async () => {
     const ctx = new Context()
     const dir = tempDir()
