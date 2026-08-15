@@ -1,7 +1,7 @@
 /**
  * Browser-side pet store: the pet state snapshot plus transient UI feedback
  * (reaction bubbles), written only through the store's audit actions. The
- * RPC polling and interactions live in the plugin apply body; components
+ * SSE/fallback transport and interactions live in the plugin apply body; components
  * only ever read snapshots.
  * @module @linxin666/dsh-pet/client/pet-store
  */
@@ -35,7 +35,7 @@ export interface PetUiState {
 
 /** Store write set. */
 export type PetUiActions = {
-  /** Replace the host snapshot (poll result). */
+  /** Replace the latest host snapshot from SSE or a compatibility fetch. */
   setSnapshot: (draft: PetUiState, snapshot: PetStateView) => void
   /** Mark the fetch lifecycle. */
   setState: (draft: PetUiState, state: PetUiState['state'], error: string | null) => void

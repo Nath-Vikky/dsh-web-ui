@@ -1,7 +1,8 @@
 /**
  * dsh-pet browser half — mounts the whale-girl as a global floating surface
- * and drives it from the host's same-origin `/api/pet/*` JSON endpoints: poll
- * the host snapshot (~800 ms), forward interactions, persist drag positions.
+ * and drives it from the host's same-origin `/api/pet/*` JSON endpoints: use
+ * SSE snapshots with an 800 ms polling fallback, forward interactions, and
+ * persist drag positions.
  * The pet is host-global (no session dimension), so it mounts directly onto
  * `document.body` via a single React root rather than a session-scoped slot —
  * on the new-conversation screen no session exists, and a dock-mounted pet
@@ -23,6 +24,7 @@ import type { PetInteraction } from '../affinity.ts'
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createPetStore, type PetStoreInstance } from './pet-store.ts'
+import { PetStateTransport } from './pet-transport.ts'
 import { PetDockEntry, type PetInjected } from './PetDockEntry.tsx'
 import { PetSettingsCard, PetSettingsCardController, type PetSettings } from './PetSettingsCard.tsx'
 import { NS, en, zh, t } from './locales.ts'
@@ -60,9 +62,6 @@ const petApi: PetHttpApi = {
   setName: (name) => petFetch('/api/pet/set-name', { name }),
 }
 
-/** Poll interval for the host snapshot. */
-const POLL_MS = 800
-
 /** Settings namespace the pet settings card edits (the Host plugin registers it). */
 const PET_SETTINGS_NS = 'pet'
 
@@ -73,6 +72,8 @@ export const inject = ['slots', 'locale', 'connection', 'settingsScope', 'remote
 export type { PetInjected, PetDockEntryProps } from './PetDockEntry.tsx'
 export type { PetUiState, PetFeedback } from './pet-store.ts'
 export type { PetSettingsCardFace, PetSettingsCardState } from './PetSettingsCard.tsx'
+export type { ModelSource, PetRenderer } from './renderers/PetRenderer.ts'
+export { SpritePetRenderer } from './renderers/sprite/SpritePetRenderer.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -106,7 +107,7 @@ declare module '@deepseek-ai/cordis' {
 
 /**
  * Client plugin body: register dictionaries, mount the global pet entry and
- * poll loop while the plugin is enabled, and seat the settings card in the
+ * state transport while the plugin is enabled, and seat the settings card in the
  * Web UI plugin group.
  * @param ctx - client root context.
  */
@@ -134,8 +135,8 @@ export function apply(ctx: ClientContext): void {
     inject: () => petSettings.inject(),
   }, PetSettingsCard))
 
-  // The global pet entry, its store, and the poll loop live while the plugin
-  // is enabled; toggling the setting off hides the pet and stops polling.
+  // The global pet entry, its store, and transport live while the plugin is
+  // enabled; toggling the setting off releases SSE and fallback polling.
   let disposeUi: (() => void) | undefined
   const syncUi = (): void => {
     if (enabled() && disposeUi === undefined) {
@@ -149,51 +150,16 @@ export function apply(ctx: ClientContext): void {
       const setState = petStore.actions.setState
       const setFeedback = petStore.actions.setFeedback
 
-      const pollNow = (): void => {
-        petApi.state().then((snapshot) => {
-          setSnapshot(snapshot)
-        }, () => {
-          setState('error', 'pet.state transport error')
-        })
-      }
-
-      const disposePoll = ctx.effect(() => {
-        // Poll only while the tab is visible: the host snapshot does not
-        // change while the page is hidden, so a background interval would
-        // only burn RPCs (browser throttling is an unreliable backstop).
-        // Coming back to the tab refreshes the pet immediately instead of
-        // waiting out the next 800 ms cycle.
-        let timer: number | undefined
-        const stop = (): void => {
-          if (timer !== undefined) {
-            window.clearInterval(timer)
-            timer = undefined
-          }
-        }
-        const start = (): void => {
-          if (timer === undefined && document.visibilityState === 'visible') {
-            timer = window.setInterval(pollNow, POLL_MS)
-          }
-        }
-        const onVisibility = (): void => {
-          if (document.visibilityState === 'visible') {
-            pollNow()
-            start()
-          } else {
-            stop()
-          }
-        }
-        start()
-        document.addEventListener('visibilitychange', onVisibility)
-        return () => {
-          stop()
-          document.removeEventListener('visibilitychange', onVisibility)
-        }
-      }, 'pet: poll')
+      const transport = new PetStateTransport({
+        fetchState: petApi.state,
+        onSnapshot: setSnapshot,
+        onError: () => { setState('error', 'pet.state transport error') },
+      })
+      transport.start()
 
       const injected = (): PetInjected => ({
         store: petStore,
-        ensure: pollNow,
+        ensure: () => { transport.refresh() },
         pet: () => {
           petApi.interact('pet').then((result) => {
             setFeedback({
@@ -218,28 +184,28 @@ export function apply(ctx: ClientContext): void {
         },
         hide: () => {
           petApi.setVisible(false).then(() => {
-            pollNow()
+            transport.refresh()
           }, () => {
             // Ignore; next poll resyncs.
           })
         },
         summon: () => {
           petApi.setVisible(true).then(() => {
-            pollNow()
+            transport.refresh()
           }, () => {
             // Ignore; next poll resyncs.
           })
         },
         dragEnd: (right, bottom) => {
           petApi.setConfig({ right, bottom }).then(() => {
-            pollNow()
+            transport.refresh()
           }, () => {
             // Ignore; next poll resyncs.
           })
         },
         rename: (name) => {
           petApi.setName(name).then((result) => {
-            if (result.ok) pollNow()
+            if (result.ok) transport.refresh()
           }, () => {
             // Ignore; next poll resyncs.
           })
@@ -265,7 +231,7 @@ export function apply(ctx: ClientContext): void {
       disposeUi = () => {
         petRoot.unmount()
         container.remove()
-        disposePoll()
+        transport.stop()
         disposeUi = undefined
       }
     } else if (!enabled() && disposeUi !== undefined) {

@@ -46,11 +46,12 @@ dsh-pet/
 |   |-- affinity.ts     # 亲密度账本（纯函数 + 冷却）
 |   |-- treats.ts       # 小鱼干库存账本
 |   |-- persist.ts      # 持久化（$DSH_HOME/pet.json，原子写入）
-|   |-- routes.ts       # /api/pet/* JSON API + /pet/whale/* 素材静态路由
+|   |-- routes.ts       # /api/pet/* REST/SSE API + /pet/whale/* 素材静态路由
 |   `-- client/         # 浏览器半区
-|       |-- index.ts    # 全局挂载（createRoot → body）+ 轮询（800ms）+ 交互接线（fetch）
+|       |-- index.ts    # 全局挂载（createRoot → body）+ SSE/降级传输 + 交互接线
 |       |-- PetDockEntry.tsx  # 全局浮层入口（document.body，无会话/新会话/会话中全程显示）
-|       |-- WhalePet.tsx      # 浮层组件（portal + rAF 帧动画 + 拖动）
+|       |-- WhalePet.tsx      # 浮层交互组件（portal + 拖动）
+|       |-- renderers/        # 渲染器统一接口 + 默认 SpritePetRenderer
 |       |-- spritesheet.ts    # 图集几何 + 每状态动画轨道（帧/时长）
 |       `-- pet.module.css
 |-- assets/whale/       # 鲸鱼娘素材（pet.json + spritesheet.webp + 动画预览）
@@ -63,8 +64,9 @@ dsh-pet/
 官方会话事件（turn/step/chunk/tool） ----\
                                                     > PetService（host）
 可选的兼容事件 activity/status --------------/
-                                                              | /api/pet/* JSON
-global React root（createRoot → document.body） <-- 轮询 800ms -- pet-client（浏览器）
+                                                              | /api/pet/events SSE
+global React root（createRoot → document.body） <---- pet-client（浏览器）
+                                                              | /api/pet/state 降级
                                                               |
                                                    WhalePet 浮层（portal + rAF）
 ```
@@ -72,8 +74,8 @@ global React root（createRoot → document.body） <-- 轮询 800ms -- pet-clie
 - **状态源**：host 将官方 `turn/start`、`step/start`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result` 和 `turn/end` 事件投影为 waiting/thinking/tool/review/done/failed 状态。可选的旧版 `activity/status` 事件仍作为兼容输入。
 - **多会话语义**：API 和浏览器挂载是 host 全局的，也不提供前台会话标识，因此最近一条有效事件决定显示。各会话的完成回合仍独立奖励，销毁非当前会话不会重置可见状态。
 - **挂载点**：`document.body`（全局 React root，无会话/新会话/会话中全程显示——旧挂载点 `conversation.composer.dock` 只在活跃会话渲染，导致新会话界面看不到宠物），组件内部 `createPortal` 渲染全局浮层。
-- **渲染**：CSS sprite（background-position）逐帧动画，帧时长来自 `spritesheet.ts` 的轨道定义。
-- **通信**：浏览器 ↔ host 走同源 `/api/pet/*` JSON 端点（state/interact/set-visible/set-config），图集从 `/pet/whale/spritesheet.webp` 加载——RPC 域与 `/plugins/` 静态服务都是平台注册的，插件自足地提供自己的 API 与素材（与 dsh-remote-web-ui 的 `/api/pair` 同一模式）。
+- **渲染**：`PetRenderer` 将 React 与具体渲染引擎隔离；`SpritePetRenderer` 继续作为默认模式和可靠回退，通过 `spritesheet.ts` 的轨道绘制 CSS sprite，页面隐藏时暂停，待机/活跃分别限制为 15/30 FPS。
+- **通信**：浏览器 ↔ host 默认通过同源 `/api/pet/events` SSE 接收完整快照；流不可用时才回退 `/api/pet/state` 与 800ms 轮询。写操作仍使用 JSON 端点（interact/set-visible/set-config/set-name），图集从 `/pet/whale/spritesheet.webp` 加载。
 
 ## 安装
 
