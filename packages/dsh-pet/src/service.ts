@@ -17,6 +17,7 @@ import {
   type ProjectedActivity,
 } from './core/activity-projection.ts'
 import { ActivityRegistry } from './core/activity-registry.ts'
+import { NarrationEngine } from './core/narration.ts'
 import {
   isPetTaskPhase,
   type PetAggregateSnapshot,
@@ -179,6 +180,7 @@ export class PetService extends Service {
   private readonly treatConfig: TreatConfig
   private readonly persistDir: string
   private readonly activityRegistry: ActivityRegistry
+  private readonly narrationEngine: NarrationEngine
   private readonly activityInstance: Omit<PetTaskIdentity, 'sessionId'>
   private readonly activityProfile: string | undefined
   private readonly activityWorkspaceLabel: string | undefined
@@ -202,6 +204,7 @@ export class PetService extends Service {
       ...(config.state ?? {}),
     })
     this.activityRegistry = new ActivityRegistry()
+    this.narrationEngine = new NarrationEngine()
     this.activityInstance = {
       instanceId: config.activity?.instanceId ?? randomUUID(),
       bootId: config.activity?.bootId ?? randomUUID(),
@@ -243,7 +246,10 @@ export class PetService extends Service {
   setEnabled(enabled: boolean): void {
     this.enabled = enabled
     this.syncActivity()
-    if (!enabled) this.activityRegistry.clear()
+    if (!enabled) {
+      this.activityRegistry.clear()
+      this.narrationEngine.reset()
+    }
   }
 
   private syncActivity(): void {
@@ -479,11 +485,17 @@ export class PetService extends Service {
 
   private view(): PetStateView {
     const snapshot = this.machine.render()
+    const activities = this.activityRegistry.snapshot()
+    const narration = this.narrationEngine.next(activities)
+    // The sprite renderer and PetStateView shape stay unchanged. Only the
+    // bubble copy switches to the scheduler while multiple tasks coexist;
+    // single-session installations retain their exact compatibility line.
+    const bubble = activities.tasks.length > 1 ? narration.text ?? snapshot.bubble : snapshot.bubble
     // Time-output treats accrue while the host is idle too; settle on read.
     this.settleTreats(Date.now())
     return {
       animation: snapshot.animation,
-      ...(snapshot.bubble === undefined ? {} : { bubble: snapshot.bubble }),
+      ...(bubble === undefined ? {} : { bubble }),
       phase: snapshot.phase,
       sessionActive: snapshot.sessionActive,
       affinity: this.affinityView(this.persist.affinity),

@@ -274,7 +274,7 @@ describe('PetService (rc.6 session events)', () => {
     }
   })
 
-  it('uses the latest meaningful event for the global display and rewards every session', async () => {
+  it('keeps latest-event animation while scheduling multi-task bubble copy', async () => {
     const ctx = new Context()
     const dir = tempDir()
     const sessionA = makeSession('s-a')
@@ -290,16 +290,22 @@ describe('PetService (rc.6 session events)', () => {
       ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
       expect(await service.state()).toMatchObject({
         animation: 'running-right',
-        bubble: '正在使用 search',
+        bubble: '主任务正在使用 search，另一个任务正在思考。',
       })
 
       ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
         type: 'text-delta', index: 0, text: 'A',
       }, 2))
-      expect(await service.state()).toMatchObject({ animation: 'review', bubble: '整理回复中' })
+      expect(await service.state()).toMatchObject({
+        animation: 'review',
+        bubble: '主任务正在使用 search，另一个任务正在思考。',
+      })
 
       ctx.emit('session/event', sessionB, turnEnd(1, { kind: 'completed' }, 2))
-      expect(await service.state()).toMatchObject({ animation: 'jumping', bubble: '完成啦' })
+      expect(await service.state()).toMatchObject({
+        animation: 'jumping',
+        bubble: '有 1 个任务刚完成，另外 1 个还在继续。',
+      })
       expect((await service.state()).affinity.turns).toBe(1)
 
       ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
@@ -321,7 +327,7 @@ describe('PetService (rc.6 session events)', () => {
     }
   })
 
-  it('retains every live session in the new activity snapshot without changing the legacy view', async () => {
+  it('retains every live session and exposes deterministic multi-task copy', async () => {
     const ctx = new Context()
     const dir = tempDir()
     const sessionA = makeSession('s-a')
@@ -343,7 +349,7 @@ describe('PetService (rc.6 session events)', () => {
 
       expect(await service.state()).toMatchObject({
         animation: 'running-right',
-        bubble: '正在使用 search',
+        bubble: '主任务正在使用 search，另一个任务正在思考。',
       })
       expect(service.activitySnapshot()).toMatchObject({
         protocolVersion: 1,
