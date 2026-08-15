@@ -82,6 +82,12 @@ export class SpritePetRenderer implements PetRenderer {
     this.cancelLoad?.()
     this.model = source
     this.frameCounts = undefined
+    // Paint the atlas URL immediately. Image decode and the optional frame
+    // manifest only refine animation metadata; they must not leave the
+    // built-in fallback transparent while either request is pending.
+    if (this.container !== undefined) {
+      this.container.style.backgroundImage = `url(${source.imageUrl})`
+    }
     const generation = ++this.loadGeneration
     const image = new Image()
     this.image = image
@@ -94,10 +100,11 @@ export class SpritePetRenderer implements PetRenderer {
       image.onerror = null
       done()
     }
-    const cancelLoad = (): void => { settle(() => undefined) }
-    this.cancelLoad = cancelLoad
+    let cancelLoad = (): void => undefined
     try {
       await new Promise<void>((resolve, reject) => {
+        cancelLoad = () => { settle(resolve) }
+        this.cancelLoad = cancelLoad
         image.onload = () => { settle(resolve) }
         image.onerror = () => {
           settle(() => { reject(new Error(`failed to load sprite model: ${source.imageUrl}`)) })
@@ -111,9 +118,6 @@ export class SpritePetRenderer implements PetRenderer {
 
     this.frameCounts = await this.resolveFrameCounts(image, source.manifestUrl)
     if (this.destroyed || generation !== this.loadGeneration) return
-    if (this.container !== undefined) {
-      this.container.style.backgroundImage = `url(${source.imageUrl})`
-    }
     this.paint()
     this.startLoop()
   }

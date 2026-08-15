@@ -26,6 +26,12 @@ class FakeImage {
   }
 }
 
+class PendingImage extends FakeImage {
+  override set src(value: string) {
+    void value
+  }
+}
+
 const intent: PetIntent = {
   id: 'intent-1',
   createdAt: 1,
@@ -110,5 +116,20 @@ describe('SpritePetRenderer', () => {
     await expect(renderer.loadModel({ kind: 'live2d', modelUrl: '/model.json' }))
       .rejects.toThrow('requires a sprite model')
     renderer.destroy()
+  })
+
+  it('paints the fallback before decode settles and completes cancellation', async () => {
+    vi.stubGlobal('Image', PendingImage)
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const container = document.createElement('div')
+    const renderer = new SpritePetRenderer()
+
+    const mounting = renderer.mount(container)
+    expect(container.style.backgroundImage).toContain(PET_SPRITESHEET_URL)
+
+    renderer.destroy()
+    await expect(mounting).resolves.toBeUndefined()
+    expect(container.style.backgroundImage).toBe('')
   })
 })
