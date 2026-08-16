@@ -1,6 +1,11 @@
 # 依赖与构建产物
 node_modules/
 
+# dsh-pet 桌面端构建产物与用户本机 PetDex 模型
+packages/dsh-pet/desktop/out/
+packages/dsh-pet/desktop/.smoke-artifacts/
+packages/dsh-pet/desktop/pixelmodel/
+
 # npm 认证配置（含令牌引用，禁止提交）
 .npmrc
 

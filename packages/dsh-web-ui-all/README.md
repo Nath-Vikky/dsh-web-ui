@@ -17,6 +17,23 @@ The one-click aggregate package for the whole dsh web UI family: installing it b
 dsh plugin --profile web add @linxin666/dsh-web-ui-all
 ```
 
+The aggregate includes `@linxin666/dsh-pet`, whose desktop companion downloads
+the platform Electron binary from its `postinstall` script. pnpm 11 requires
+that lifecycle script to be approved in the target profile. Add the following
+entry to `$DSH_HOME/profiles/web/pnpm-workspace.yaml`, then rerun the install if
+pnpm initially blocked the script:
+
+```yaml
+allowBuilds:
+  '@linxin666/dsh-pet': true
+```
+
+This approval is security-sensitive because it permits the dependency's
+installation code to run. It applies to both aggregate and standalone pet
+installs. Local tarball, file, and Git specs may receive an exact generated
+approval key; use the key printed by pnpm instead of committing a
+machine-specific path.
+
 ### From the repository (development)
 
 ```sh

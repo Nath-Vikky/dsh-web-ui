@@ -1,148 +1,133 @@
-# dsh-pet — Multi-pet companion plugin
+# dsh-pet — Desktop pet companion
 
 English | [中文](README.zh.md)
 
-> A registry-driven desktop companion for DeepSeek Harness — the built-in whale girl plus any pet you drop in.
+`dsh-pet` is a task-aware desktop companion for DeepSeek Harness. The Host plugin projects official session activity into pet intents, while the Electron app renders the selected pixel model in a transparent desktop window.
 
-While the model thinks, you wait — your pet swims. It follows official session activity and switches animations while waiting, thinking, using tools, composing a reply, celebrating completion, or reporting failure; you can also pat its head, feed it dried fish, and watch its affinity grow. Pets are registry entries, not code: every pet is one `pet.json` manifest plus one atlas image, and the host discovers them at startup.
-
-Re-implemented from the pet feature of the Codex desktop app, as an official DSH plugin shape (cordis bundle: host half + client half in one package).
+The former in-page whale-girl overlay has been removed. Installing this plugin no longer mounts a floating pet, summon button, sprite transport, or asset routes into the DSH web page; the browser client only contributes the desktop companion settings card.
 
 ## Features
 
 | Feature | Description |
 |---|---|
-| Multi-pet registry | The host scans built-in `assets/`, the hatch-pet custom pets directory, and composed config entries; each pet is a manifest plus an atlas |
-| Pet selection in settings | The plugin settings card lists every registered pet; switching persists and the sprite swaps immediately |
-| Per-pet naming | Rename from the hover panel; each pet keeps its own name (stored per pet id, migrated from the legacy flat name) |
-| State animation | Official session activity → 9-state animation: `thinking → running`, `tool → running-right`, `review → review`, `waiting → waiting`, `done → jumping`, `failed → failed` |
-| Head-pat interaction | Click the pet → bubble feedback + affinity +1 (10s cooldown) |
-| Feeding | Hover panel 喂食 (Feed) → consumes 1 dried fish + affinity +5 (30s cooldown) |
-| Treat economy | Dried-fish stock (cap 20): +1 every 3 rounds of work, +1 every 30 minutes |
-| Affinity | +1 per round completed; 4 levels: 幼鲸 → 伙伴 → 挚友 → 深海羁绊 (capped at 100) |
-| Dragging | Hold and drag the pet to reposition; position persisted |
-| Hide/Summon | Hover panel 隐藏 (Hide); after hiding, a 召唤{name} (Summon {name}) button appears |
-| Status bubble | Shows the current session stage or tool name; transient interaction feedback temporarily takes priority |
-| Multi-session activity | The pet is host-global: the most recent meaningful event controls its display, while completed turns from every session contribute affinity and treats |
+| Desktop window | Transparent Electron window, tray controls, smooth dragging, persistent position, position lock, and always-on-top behavior |
+| Task awareness | Official DSH session events drive waiting, working, tool, review, completion, failure, and idle animations |
+| Interactions | Head pats and feeding update affinity, dried-fish stock, and feedback |
+| Pixel models | Built-in whale-girl fallback, local PetDex model discovery, safe folder import, model switching, and a separate saved name for each model |
+| Managed lifecycle | Starts with the Web DSH Host and exits when the owning Harness process stops; the settings switch can stop or restart it |
+| Shared settings | Window visibility, always-on-top, and position lock stay synchronized between the Web settings card and the desktop tray/drawer |
+| Adaptive settings location | Aggregate installs use Settings → Plugins → Web UI Plugins → Pet; standalone installs use Settings → Plugins → Pet |
 
-## Pet contract
-
-A pet is a directory holding one `pet.json` manifest and one atlas image. Nothing else is required — no host or client code changes.
-
-```jsonc
-{
-  "id": "whale-girl",                     // unique lowercase kebab id
-  "displayName": "鲸鱼娘",                 // shown in the settings selector and panel
-  "description": "A soft healing whale-girl.", // optional
-  "spritesheetPath": "spritesheet.webp",   // atlas, relative to the manifest
-  "cell": { "width": 192, "height": 208 }, // optional; defaults to the Codex contract
-  "columns": 8,                            // optional; default 8
-  "frames": [6, 8, 8, 4, 5, 8, 6, 6, 6],   // optional per-row frame counts
-  "tracks": {                              // optional per-track rhythm overrides
-    "idle": { "durations": [400, 400, 500, 400, 400, 500] }
-  }
-}
-```
-
-- The atlas is an 8-column × 9-row grid (192×208 cells by default); rows are fixed in this order: 0 idle, 1 running-right, 2 running-left, 3 waving, 4 jumping, 5 failed, 6 waiting, 7 running, 8 review. Unused cells stay fully transparent.
-- `frames` counts the used columns per row (defaults to the hatch-pet contract table `[6, 8, 8, 4, 5, 8, 6, 6, 6]`); `tracks` overrides per-frame durations (cycled to the row's frame count), `loop`, and `fallback` per animation (defaults: everything loops; `jumping` and `failed` hold their last frame, then fall back to `idle`).
-
-Where pets come from (later sources override earlier ones on id collision):
-
-1. **Built-in**: `assets/<dir>/pet.json` in this package.
-2. **Custom pets**: `${CODEX_HOME:-~/.codex}/pets/<pet>/pet.json` — the hatch-pet pipeline stages its output there, so a hatched pet appears in the selector with no further wiring.
-3. **Composed**: `PetConfig.pets` manifest entries passed to the plugin by the embedding application.
-
-The registry is built once at host startup; add or change a pet, then restart `dsh web`.
-
-## Animation preview
-
-The sprites are an 8-column × 9-row atlas (192×208 cells) generated by the [hatch-pet](https://github.com/dsh2026) pipeline; below are previews of each state:
-
-| idle | waiting | running | jumping |
-|---|---|---|---|
-| ![idle](assets/whale/previews/idle.gif) | ![waiting](assets/whale/previews/waiting.gif) | ![running](assets/whale/previews/running.gif) | ![jumping](assets/whale/previews/jumping.gif) |
-
-| waving | review | failed | move left/right |
-|---|---|---|---|
-| ![waving](assets/whale/previews/waving.gif) | ![review](assets/whale/previews/review.gif) | ![failed](assets/whale/previews/failed.gif) | ![running-left](assets/whale/previews/running-left.gif) ![running-right](assets/whale/previews/running-right.gif) |
+Model selection and per-model names remain in the desktop pet panel because imported model catalogs live on the desktop side, not in the browser Host.
 
 ## Architecture
 
 ```text
-dsh-pet/
-|-- src/
-|   |-- index.ts             # host half: plugin entry (registry build, settings section, routes)
-|   |-- registry.ts          # multi-pet contract: manifest scan + normalization (assets + custom pets)
-|   |-- service.ts           # PetService: pet selection + state machine + affinity + config
-|   |-- state.ts             # pet state machine: projected session activity → 9 state animations
-|   |-- affinity.ts          # affinity ledger (pure functions + cooldowns)
-|   |-- treats.ts            # dried-fish stock ledger
-|   |-- persist.ts           # persistence ($DSH_HOME/pet.json: selection + per-pet names, atomic write)
-|   |-- routes.ts            # /api/pet/* JSON API + /pet/<id>/* asset routes
-|   `-- client/             # browser half
-|       |-- index.ts         # global mount (createRoot → body) + registry fetch + polling + wiring
-|       |-- PetDockEntry.tsx # global floating entry (document.body, always shown)
-|       |-- PetSprite.tsx    # definition-driven floating sprite (portal + rAF + dragging)
-|       |-- PetSettingsCard.tsx # settings card: pet selector + display layout
-|       |-- spritesheet.ts   # atlas geometry helpers + track trimming
-|       `-- pet.module.css
-|-- assets/whale/            # built-in whale-girl (pet.json + spritesheet.webp + previews)
-`-- cordis.patch.yml         # bundle patch: inserts the pet plugin row
+packages/dsh-pet/
+|-- src/index.ts            Host plugin, settings, routes, desktop lifecycle
+|-- src/service.ts          task state, affinity, treats, companion settings
+|-- src/routes.ts           local REST/SSE bridge under /api/pet/*
+|-- src/settings-bridge.ts  narrow loopback fallback for standalone settings
+|-- src/settings-protocol.ts shared fallback wire contract
+|-- src/core/               multi-session projection and PetIntent mapping
+|-- src/client/index.ts     settings-card registration only
+|-- src/client/             settings card and standalone fallback scope
+`-- desktop/
+    |-- src/main/           Electron lifecycle, window, tray, Host client
+    |-- src/renderer/       desktop pet panel and pixel renderer
+    |-- src/shared/         validated IPC and bridge contracts
+    |-- resources/          packaged tray icon
+    `-- pixelmodel/         ignored local-development PetDex directory
 ```
 
 ### Data flow
 
 ```text
-official session events (turn/step/chunk/tool) ----\
-                                                    > PetService (host) <-- registry (assets + custom pets)
-optional legacy activity/status ------------------/
-                                                              | /api/pet/* JSON
-global React root (createRoot → document.body) <-- polling 2s -- pet-client (browser)
-                                                              |
-                                       PetSprite floating layer (portal + rAF)
+official DSH session events
+          |
+          v
+PetService + PetIntent ---- /api/pet/events (SSE) ---> Electron desktop pet
+          ^                                               |
+          |                                               |
+          `--- /api/pet/companion-settings <--------------'
+
+Web settings card <---- pet settings namespace ----> PetService
 ```
 
-- **Status source**: the host projects official `turn/start`, `step/start`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, and `turn/end` events into waiting/thinking/tool/review/done/failed states. Optional legacy `activity/status` events remain a compatibility input.
-- **Registry**: the host normalizes every manifest into a full render definition (geometry, per-row frame counts, per-track durations) and serves it over `/api/pet/pets`; the browser half renders any entry from that definition and carries no per-pet code.
-- **Selection & naming**: `petId` lives in the settings namespace; per-pet names live in `pet.json` under `names`, edited through the hover-panel rename of the active pet. Legacy installs migrate their flat `name` onto the whale girl.
-- **Multi-session semantics**: the API and browser mount are host-global and expose no foreground-session identity, so the most recent meaningful event wins the display. Every session's completed turns are still rewarded independently, and disposing a non-current session does not reset the visible state.
-- **Mount point**: `document.body` (global React root, always shown: no session / new session / mid-session — the old mount point `conversation.composer.dock` only rendered in an active session, hiding the pet in new sessions); the component uses `createPortal` internally to render the global floating layer.
-- **Rendering**: CSS sprite (background-position) per-frame animation; frame durations come from the served definition's tracks.
-- **Communication**: browser ↔ host over the same-origin `/api/pet/*` JSON endpoints (state/pets/interact/set-visible/set-config/set-name/set-pet); each pet's atlas loads from `/pet/<id>/<spritesheetPath>` — the plugin self-sufficiently provides its own API and assets (the same pattern as dsh-remote-web-ui's `/api/pair`).
+- The desktop client prefers SSE and falls back to `/api/pet/state` polling while the stream is unavailable.
+- Head-pat and feeding actions use `/api/pet/interact`.
+- Desktop window changes use `/api/pet/companion-settings` and are mirrored into the same `pet` settings namespace.
+- When the official DSH settings RPC does not expose third-party namespaces, a loopback-only `/api/pet/settings/*` fallback preserves the same revision-fenced settings document semantics. Aggregate installs prefer the shared `dsh-web-ui-settings` compatibility binder.
+- The browser client never renders the pet itself.
 
 ## Install
 
-Install the family aggregate package `@linxin666/dsh-web-ui-all` (all plugins and skins in one) or this plugin alone:
+Standalone package:
 
-```sh
-### From npm (recommended)
-dsh plugin --profile web add @linxin666/dsh-pet
+Electron 43 downloads its platform binary through this package's `postinstall`. pnpm 11 blocks dependency build scripts until the profile explicitly trusts the package. Add this entry to `$DSH_HOME/profiles/<profile>/pnpm-workspace.yaml` before installation:
 
-### From the repository (development)
-git clone https://github.com/zhu1090093659/dsh-web-ui.git
-cd dsh-web-ui
-pnpm install && pnpm -r build
-dsh plugin --profile web add link:$(pwd)/packages/dsh-pet
-
+```yaml
+allowBuilds:
+  '@linxin666/dsh-pet': true
 ```
 
-After installing, **restart `dsh web`** — your selected pet appears at the bottom-right of the interface. In link mode, `pnpm build` and refresh the page after a code change; no reinstall needed.
+Then install the bundle:
+
+```sh
+dsh plugin --profile web add @linxin666/dsh-pet
+```
+
+The package contains the prebuilt Host/browser outputs and desktop runtime. It also declares Electron as a runtime dependency, so no sibling checkout or global Electron installation is required. The authorization is security-sensitive: it permits the package lifecycle script to download the official platform-specific Electron binary.
+
+For a local tarball, file, or Git artifact, pnpm keys the approval by the exact artifact spec instead of the registry package name. Let the first blocked install write its exact placeholder under `allowBuilds`, change that generated value to `true`, then run `dsh plugin --profile <profile> install`. Do not guess or copy a machine-specific artifact key into shared configuration.
+
+The aggregate package already depends on `@linxin666/dsh-pet`; installing `@linxin666/dsh-web-ui-all` therefore installs and activates the same pet bundle without a second patch row.
+
+Source-checkout development:
+
+```sh
+pnpm install
+pnpm --filter @linxin666/dsh-pet build
+dsh plugin --profile web add link:<checkout>/packages/dsh-pet
+```
+
+Restart `dsh web` after installation. The Host plugin launches the desktop runtime from inside its own package. Rebuild the package after changing Host/client or Electron code; link installs do not need to be added again.
+
+## Settings
+
+The Web settings card manages:
+
+- Launch desktop pet
+- Show desktop pet
+- Always on top
+- Lock position
+
+The desktop pet panel manages the Web DSH target, pixel model selection/import, and each model's saved display name.
+
+## Configuration and data
+
+The Cordis entry exports a typed `Config` and same-named Schemastery schema. Deployment defaults for affinity, treats, celebration timing, persistence, activity metadata, and the lifecycle switch can be overridden in the plugin row's `config` object and are validated before startup.
+
+- Host affinity and treat data stay under `$DSH_HOME` by default (`pet.json`).
+- Desktop window/model preferences use Electron's platform `userData` directory.
+- Imported PetDex models are copied into `userData/pixel-models`; the installed package is never modified.
+- `desktop/pixelmodel` is an ignored source-checkout discovery directory for local model development only.
 
 ## Development
 
 ```sh
-pnpm build        # tsc -b (types+declarations) && tsdown (node half + browser bundle)
-pnpm test         # vitest unit/component tests (registry / event projection / state / UI / ledgers)
-pnpm prepare      # transpile-only build (no type checking, for consumer installs)
-pnpm typecheck    # type check only
+pnpm --filter @linxin666/dsh-pet typecheck
+pnpm --filter @linxin666/dsh-pet test
+pnpm --filter @linxin666/dsh-pet build
+pnpm --filter @linxin666/dsh-pet desktop:smoke
 ```
 
-The browser bundle rides the `window.__ModuleLoader__.load` contract; React/cordis and so on resolve from the loader's module table (external); CSS Modules are inlined by lightningcss as `<style data-plugin>`.
+## Known limitations
 
-## Sprites and animation-track calibration
-
-The built-in whale-girl atlas is generated by the hatch-pet pipeline as 9 states × 8 columns: `assets/whale/spritesheet.webp` (1536×1872, 8 columns × 9 rows of 192×208 cells) + `assets/whale/pet.json`. The frame count and rhythm of each row live in that manifest's `frames` and `tracks` fields — the whale girl carries its own slower healing durations, while pets without overrides follow the hatch-pet contract rhythm. Redoing artwork therefore only edits `assets/whale/pet.json` (row-order contract: 0 idle / 1 running-right / 2 running-left / 3 waving / 4 jumping / 5 failed / 6 waiting / 7 running / 8 review).
+- The companion currently connects only to a loopback Web DSH origin. Desktop and CLI Harness adapters are intentionally deferred.
+- PetDex version 1 and 2 atlases are accepted, but their available tracks are mapped onto the current nine DSH activity animations; model-specific extra actions are not inferred automatically.
+- Electron adds a substantial install/download and idle-memory cost compared with the former in-page renderer, and its one-time binary download requires the profile-level `allowBuilds` authorization described above. The app does not embed DSH Web, uses SSE in steady state, and repaints only when a sprite frame changes to keep ongoing CPU/network work low.
+- Unsigned development builds use Electron's generic executable identity. A separately packaged, signed desktop distribution would be required for a stable native application identity across install paths.
 
 ## License
 

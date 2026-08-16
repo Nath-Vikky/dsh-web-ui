@@ -1,34 +1,11 @@
-import { describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { describe, expect, it, vi } from 'vitest'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 import { loadPetPersist } from '../src/persist.ts'
 import { PetService } from '../src/service.ts'
-import { resolvePetManifest, type PetRegistry } from '../src/registry.ts'
-
-/** Two-pet registry fixture (whale-girl + otter) for selection/name tests. */
-function fixtureRegistry(): PetRegistry {
-  const warnings: string[] = []
-  const whale = resolvePetManifest({
-    id: 'whale-girl',
-    displayName: '鲸鱼娘',
-    spritesheetPath: 'spritesheet.webp',
-  }, join(tmpdir(), 'whale'), { warnings })
-  const otter = resolvePetManifest({
-    id: 'otter',
-    displayName: '水獭',
-    spritesheetPath: 'spritesheet.webp',
-  }, join(tmpdir(), 'otter'), { warnings })
-  const entries = [whale!, otter!]
-  return {
-    entries,
-    warnings,
-    byId: id => entries.find(entry => entry.id === id),
-    defaultEntry: () => entries[0]!,
-  }
-}
 
 // The former working-activity plugin extended the mergeable event map. Keep
 // that external declaration test-only so dsh-pet itself does not claim the
@@ -167,6 +144,98 @@ function tempDir(): string {
 }
 
 describe('PetService (rc.6 session events)', () => {
+  it('keeps the initial desktop bridge state contract stable', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      expect(await service.state()).toEqual({
+        animation: 'idle',
+        phase: 'idle',
+        sessionActive: false,
+        intent: {
+          id: '0:idle:idle',
+          createdAt: expect.any(Number),
+          priority: 0,
+          ttlMs: 12_000,
+          expression: 'neutral',
+          motion: 'idle',
+          sourceTaskIds: [],
+          interruptible: true,
+        },
+        affinity: {
+          points: 0,
+          rank: '幼鲸',
+          rankEmoji: '*',
+          pets: 0,
+          feeds: 0,
+          turns: 0,
+          petCooldown: false,
+          feedCooldown: false,
+        },
+        companion: { enabled: true, visible: true, alwaysOnTop: true, locked: false },
+        treats: { stocked: 0, max: 20 },
+      })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('publishes complete snapshots and stops after unsubscribe', () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const session = makeSession('s1')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      const snapshots: Array<Awaited<ReturnType<PetService['state']>>> = []
+      const unsubscribe = service.subscribeState(snapshot => snapshots.push(snapshot))
+
+      expect(snapshots).toHaveLength(1)
+      expect(snapshots[0]).toMatchObject({ animation: 'idle', sessionActive: false })
+
+      ctx.emit('session/event', session, turnEnd(1, { kind: 'completed' }, 1))
+      expect(snapshots).toHaveLength(2)
+      expect(snapshots[1]).toMatchObject({
+        animation: 'jumping',
+        affinity: { turns: 1 },
+      })
+
+      unsubscribe()
+      ctx.emit('session/event', session, turnEnd(2, { kind: 'completed' }, 2))
+      expect(snapshots).toHaveLength(2)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('publishes the time-based return to idle without a compatibility poll', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    const ctx = new Context()
+    const dir = tempDir()
+    const session = makeSession('s1')
+    try {
+      const service = new PetService(ctx, { persistDir: dir, state: { celebrateMs: 100 } })
+      const snapshots: Array<Awaited<ReturnType<PetService['state']>>> = []
+      service.subscribeState(snapshot => snapshots.push(snapshot))
+
+      ctx.emit('session/event', session, turnEnd(1, { kind: 'completed' }, 1))
+      expect(snapshots.at(-1)).toMatchObject({ animation: 'jumping', bubble: '完成啦' })
+
+      await vi.advanceTimersByTimeAsync(101)
+      expect(snapshots.at(-1)).toMatchObject({ animation: 'idle' })
+      expect(snapshots.at(-1)?.bubble).toBeUndefined()
+      expect(snapshots.at(-1)?.intent).toMatchObject({
+        id: expect.stringContaining(':done:settled'),
+        expression: 'neutral',
+        motion: 'idle',
+      })
+    } finally {
+      vi.useRealTimers()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('stops consuming session events while disabled and resumes on re-enable', async () => {
     const ctx = new Context()
     const dir = tempDir()
@@ -176,16 +245,19 @@ describe('PetService (rc.6 session events)', () => {
       ctx.emit('session/event', session, turnEnd(1, { kind: 'completed' }, 1))
       expect((await service.state()).animation).toBe('idle')
       expect((await service.state()).affinity.turns).toBe(0)
+      expect((await service.state()).companion.enabled).toBe(false)
 
       service.setEnabled(true)
       ctx.emit('session/event', session, turnEnd(1, { kind: 'completed' }, 2))
       expect((await service.state()).animation).toBe('jumping')
       expect((await service.state()).affinity.turns).toBe(1)
+      expect((await service.state()).companion.enabled).toBe(true)
 
       service.setEnabled(false)
       ctx.emit('session/event', session, turnEnd(2, { kind: 'completed' }, 3))
       expect((await service.state()).animation).toBe('jumping')
       expect((await service.state()).affinity.turns).toBe(1)
+      expect((await service.state()).companion.enabled).toBe(false)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -269,7 +341,7 @@ describe('PetService (rc.6 session events)', () => {
     }
   })
 
-  it('uses the latest meaningful event for the global display and rewards every session', async () => {
+  it('keeps latest-event animation while scheduling multi-task bubble copy', async () => {
     const ctx = new Context()
     const dir = tempDir()
     const sessionA = makeSession('s-a')
@@ -285,16 +357,22 @@ describe('PetService (rc.6 session events)', () => {
       ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
       expect(await service.state()).toMatchObject({
         animation: 'running-right',
-        bubble: '正在使用 search',
+        bubble: '主任务正在使用 search，另一个任务正在思考。',
       })
 
       ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
         type: 'text-delta', index: 0, text: 'A',
       }, 2))
-      expect(await service.state()).toMatchObject({ animation: 'review', bubble: '整理回复中' })
+      expect(await service.state()).toMatchObject({
+        animation: 'review',
+        bubble: '主任务正在使用 search，另一个任务正在思考。',
+      })
 
       ctx.emit('session/event', sessionB, turnEnd(1, { kind: 'completed' }, 2))
-      expect(await service.state()).toMatchObject({ animation: 'jumping', bubble: '完成啦' })
+      expect(await service.state()).toMatchObject({
+        animation: 'jumping',
+        bubble: '有 1 个任务刚完成，另外 1 个还在继续。',
+      })
       expect((await service.state()).affinity.turns).toBe(1)
 
       ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
@@ -311,6 +389,48 @@ describe('PetService (rc.6 session events)', () => {
       expect((await service.state()).affinity.turns).toBe(2)
       ctx.emit('session/disposed', sessionA)
       expect(await service.state()).toMatchObject({ animation: 'idle', sessionActive: false })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('retains every live session and exposes deterministic multi-task copy', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const sessionA = makeSession('s-a')
+    const sessionB = makeSession('s-b')
+    try {
+      const service = new PetService(ctx, {
+        persistDir: dir,
+        activity: {
+          instanceId: 'web-profile',
+          bootId: 'boot-test',
+          profile: 'web',
+        },
+      })
+
+      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+        type: 'reasoning-delta', index: 0, text: 'A',
+      }, 1))
+      ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
+
+      expect(await service.state()).toMatchObject({
+        animation: 'running-right',
+        bubble: '主任务正在使用 search，另一个任务正在思考。',
+      })
+      expect(service.activitySnapshot()).toMatchObject({
+        protocolVersion: 1,
+        sequence: 2,
+        summary: { active: 2, waiting: 0, failed: 0, completedRecently: 0 },
+        tasks: [
+          { instanceId: 'web-profile', bootId: 'boot-test', profile: 'web' },
+          { instanceId: 'web-profile', bootId: 'boot-test', profile: 'web' },
+        ],
+      })
+      expect(service.activitySnapshot().tasks.map(task => task.sessionId).sort()).toEqual(['s-a', 's-b'])
+
+      ctx.emit('session/disposed', sessionB)
+      expect(service.activitySnapshot().tasks.map(task => task.sessionId)).toEqual(['s-a'])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -485,114 +605,41 @@ describe('PetService (rc.6 session events)', () => {
     }
   })
 
-  it('reports the selected pet identity and the registry list', async () => {
+  it('projects committed settings into the desktop companion snapshot', async () => {
     const ctx = new Context()
     const dir = tempDir()
     try {
-      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
-      const view = await service.state()
-      expect(view.pet.id).toBe('whale-girl')
-      expect(view.pet.displayName).toBe('鲸鱼娘')
-      expect(view.name).toBe('鲸鱼娘')
-      const pets = await service.pets()
-      expect(pets.map(entry => entry.id)).toEqual(['whale-girl', 'otter'])
-      expect(pets[0]!.atlasUrl).toBe('/pet/whale-girl/spritesheet.webp')
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('switches pets and keeps an independent name per pet', async () => {
-    const ctx = new Context()
-    const dir = tempDir()
-    try {
-      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
-      expect((await service.setName('小鲸')).ok).toBe(true)
-      expect((await service.state()).name).toBe('小鲸')
-
-      expect((await service.setPetId('otter')).ok).toBe(true)
-      expect((await service.state()).pet.id).toBe('otter')
-      // The new pet falls back to its manifest displayName until renamed.
-      expect((await service.state()).name).toBe('水獭')
-
-      expect((await service.setName('阿獭')).ok).toBe(true)
-      expect((await service.setPetId('whale-girl')).ok).toBe(true)
-      expect((await service.state()).name).toBe('小鲸')
-      expect((await service.setPetId('otter')).ok).toBe(true)
-      expect((await service.state()).name).toBe('阿獭')
-
-      expect(loadPetPersist(dir)).toMatchObject({
-        petId: 'otter',
-        names: { 'whale-girl': '小鲸', otter: '阿獭' },
-      })
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('refuses to switch to an unknown pet', async () => {
-    const ctx = new Context()
-    const dir = tempDir()
-    try {
-      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
-      const result = await service.setPetId('dragon')
-      expect(result.ok).toBe(false)
-      expect((await service.state()).pet.id).toBe('whale-girl')
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('applies a settings section that selects another pet', async () => {
-    const ctx = new Context()
-    const dir = tempDir()
-    try {
-      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
+      const service = new PetService(ctx, { persistDir: dir })
       service.applySettingsSection({
-        petId: 'otter',
-        visible: true,
-        size: 160,
-        right: 24,
-        bottom: 20,
+        enabled: true,
+        visible: false,
+        alwaysOnTop: false,
+        locked: true,
       })
-      expect((await service.state()).pet.id).toBe('otter')
+      expect(await service.state()).toMatchObject({
+        companion: { enabled: true, visible: false, alwaysOnTop: false, locked: true },
+      })
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  it('falls back to the default pet when the persisted selection is unknown', async () => {
+  it('mirrors Electron window changes into the pet settings namespace', async () => {
     const ctx = new Context()
     const dir = tempDir()
     try {
-      writeFileSync(join(dir, 'pet.json'), JSON.stringify({ petId: 'gone', display: { visible: true, size: 160, right: 24, bottom: 20 } }), 'utf8')
-      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
-      expect((await service.state()).pet.id).toBe('whale-girl')
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
+      const service = new PetService(ctx, { persistDir: dir })
+      const update = vi.fn().mockResolvedValue(undefined)
+      vi.spyOn(ctx, 'get').mockReturnValue({ update } as never)
 
-  it('migrates the legacy flat name onto the selected pet', async () => {
-    const ctx = new Context()
-    const dir = tempDir()
-    try {
-      writeFileSync(join(dir, 'pet.json'), JSON.stringify({ name: '泡泡' }), 'utf8')
-      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
-      expect((await service.state()).name).toBe('泡泡')
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
+      await service.setCompanionSettings({ visible: false, locked: true })
 
-  it('rejects whitespace-only renames without persisting them', async () => {
-    const ctx = new Context()
-    const dir = tempDir()
-    try {
-      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
-      const result = await service.setName('   ')
-      expect(result.ok).toBe(false)
-      expect(service.petName()).toBe('鲸鱼娘')
+      expect(update).toHaveBeenCalledWith('pet', {
+        enabled: true,
+        visible: false,
+        alwaysOnTop: true,
+        locked: true,
+      })
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

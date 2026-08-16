@@ -1,30 +1,40 @@
 /**
- * dsh-pet host half — mounts the pet service and its HTTP routes. The
- * browser half (the './client' entry) renders the selected pet and drives it
- * through the same-origin '/api/pet/*' JSON endpoints plus the '/pet/<id>/*'
- * media route. The host builds the multi-pet registry once at startup from
- * the package assets, the hatch-pet custom pets directory, and composed
- * config entries; adding a pet means dropping a manifest + atlas into one of
- * those sources, never touching host or client code. Install via
- * 'dsh plugin --profile web add link:<dsh-web-ui>/packages/dsh-pet'; the
- * cordis.patch.yml inserts this plugin row.
+ * dsh-pet host half — mounts the pet service, desktop companion lifecycle,
+ * and its local HTTP bridge. The browser half only contributes the desktop
+ * settings card. Install via `dsh plugin --profile web add
+ * link:<dsh-web-ui>/packages/dsh-pet`; the cordis.patch.yml inserts this plugin row.
  * @module @linxin666/dsh-pet
  */
 
 import { Context } from '@deepseek-ai/cordis'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import {
+  installSettingsSection,
+  settingsNamespace,
+  type SettingsProvider,
+} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import z from 'schemastery'
-import { PetService, PET_SETTINGS_NAMESPACE, type PetConfig, type PetSettingsSection } from './service.ts'
+import { defaultAffinityConfig } from './affinity.ts'
+import { launchDesktopCompanion } from './desktop-companion.ts'
+import {
+  DEFAULT_PET_COMPANION_SETTINGS,
+  PetService,
+  PET_SETTINGS_NAMESPACE,
+  type PetConfig,
+  type PetSettingsSection,
+} from './service.ts'
 import { makePetRoutes } from './routes.ts'
-import { loadPetRegistry, petPackageRoot } from './registry.ts'
-import { DISPLAY_INSET_MAX, DISPLAY_SIZE_MAX, DISPLAY_SIZE_MIN } from './persist.ts'
+import { makePetSettingsBridgeRoutes } from './settings-bridge.ts'
+import { legacyWebSettingOps } from './settings-migration.ts'
+import { defaultPetStateConfig } from './state.ts'
+import { defaultTreatConfig } from './treats.ts'
 
 export { PetService } from './service.ts'
 export type {
+  PetCompanionSettings,
+  PetCompanionState,
   PetConfig,
   PetInteractResult,
-  PetSettingsSection,
   PetStateView,
 } from './service.ts'
 export {
@@ -61,43 +71,62 @@ export {
 } from './treats.ts'
 export type { TreatConfig, TreatLedger, TreatSettlement } from './treats.ts'
 export {
-  DEFAULT_PET_ID,
-  DEFAULT_PET_NAME,
-  PET_NAME_MAX_LENGTH,
-  defaultDisplayConfig,
   emptyPersist,
   loadPetPersist,
   petHomeDir,
   savePetPersist,
 } from './persist.ts'
-export type { PetDisplayConfig, PetPersist } from './persist.ts'
+export type { PetPersist } from './persist.ts'
+
+export { ActivityRegistry } from './core/activity-registry.ts'
+export type { ActivityRegistryOptions, PetTaskUpdate } from './core/activity-registry.ts'
 export {
-  DEFAULT_FRAME_COUNTS,
-  DEFAULT_PET_CELL,
-  DEFAULT_PET_COLUMNS,
-  DEFAULT_PET_ROW_COUNT,
-  DEFAULT_TRACK_PATTERNS,
-  PET_ROW_ORDER,
-  codexPetsDir,
-  loadPetRegistry,
-  petEntryView,
-  petPackageRoot,
-  resolvePetManifest,
-} from './registry.ts'
+  createActivityProjectionRuntime,
+  displayToolName,
+  projectOfficialEvent,
+} from './core/activity-projection.ts'
 export type {
-  PetDefinition,
-  PetEntry,
-  PetManifest,
-  PetRegistry,
-  PetRegistryOptions,
-  PetTrackDef,
-  PetTrackOverride,
-} from './registry.ts'
+  ActivityProjectionRuntime,
+  ProjectedActivity,
+} from './core/activity-projection.ts'
+export { mapActivityToIntent } from './core/intent.ts'
+export type {
+  PetExpression,
+  PetIntent,
+  PetMotion,
+} from './core/intent.ts'
+export { NarrationEngine, narrateActivity } from './core/narration.ts'
+export type {
+  NarrationContext,
+  NarrationDecision,
+  NarrationEngineOptions,
+  NarrationReason,
+} from './core/narration.ts'
+export { selectPrimaryTask } from './core/primary-task.ts'
+export type { PrimaryTaskSelection } from './core/primary-task.ts'
+export { sanitizeActivityText } from './core/sanitize.ts'
+export type { ActivityTextOptions } from './core/sanitize.ts'
+export {
+  isPetTaskPhase,
+  PET_ACTIVITY_PROTOCOL_VERSION,
+  petTaskId,
+} from './core/protocol.ts'
+export type {
+  PetActivityEnvelope,
+  PetActivityMessage,
+  PetAggregateSnapshot,
+  PetAggregateSummary,
+  PetInstanceDescriptor,
+  PetTaskIdentity,
+  PetTaskPhase,
+  PetTaskSnapshot,
+  PetTaskTokenUsage,
+  PetTaskToolSnapshot,
+} from './core/protocol.ts'
 
 export {
   makePetRoutes,
   PET_API_PREFIX,
-  PET_ASSET_PREFIX,
 } from './routes.ts'
 
 /** Stable cordis plugin name (matches cordis.patch.yml insert id). */
@@ -106,87 +135,111 @@ export const name = 'pet'
 /** Services required before the pet can mount its surfaces. */
 export const inject = ['webServer']
 
-/**
- * Settings section schema: pet selection and display fields the web settings
- * surface edits. petId is a plain string on purpose: the service clamps the
- * resolved value against the registry, so a stored selection that points at
- * a removed pet cannot invalidate the section (a strict union would refuse
- * the whole registration). The settings card renders the actual registry
- * choices itself from '/api/pet/pets'.
- */
-export function makePetSettingsSchema(fallbackPetId: string) {
-  return z.object({
-    visible: z.boolean().default(true),
-    size: z.number().step(1).min(DISPLAY_SIZE_MIN).max(DISPLAY_SIZE_MAX).default(160),
-    right: z.number().step(1).min(0).max(DISPLAY_INSET_MAX).default(24),
-    bottom: z.number().step(1).min(0).max(DISPLAY_INSET_MAX).default(20),
-    petId: z.string().default(fallbackPetId),
-    enabled: z.boolean().default(true),
-  })
-}
+/** Cordis deployment configuration, validated by the same-named schema. */
+export interface Config extends PetConfig {}
 
-/** Register the pet service and its API + asset routes on the context. */
-export function apply(ctx: Context, config: PetConfig = {}): void {
-  const registry = config.registry
-    ?? loadPetRegistry({
-      packageRoot: petPackageRoot(import.meta.url),
-      ...(config.pets === undefined ? {} : { extra: config.pets }),
-    })
-  const service = new PetService(ctx, { ...config, registry })
+export const Config: z<Config> = z.object({
+  affinity: z.object({
+    turnReward: z.number().step(1).min(0).max(100).default(defaultAffinityConfig.turnReward),
+    petReward: z.number().step(1).min(0).max(100).default(defaultAffinityConfig.petReward),
+    petCooldownMs: z.number().step(1).min(0).max(86_400_000).default(defaultAffinityConfig.petCooldownMs),
+    feedReward: z.number().step(1).min(0).max(100).default(defaultAffinityConfig.feedReward),
+    feedCooldownMs: z.number().step(1).min(0).max(86_400_000).default(defaultAffinityConfig.feedCooldownMs),
+  }),
+  state: z.object({
+    celebrateMs: z.number().step(1).min(0).max(60_000).default(defaultPetStateConfig.celebrateMs),
+  }),
+  treats: z.object({
+    turnsPerTreat: z.number().step(1).min(1).max(10_000).default(defaultTreatConfig.turnsPerTreat),
+    timeTreatMs: z.number().step(1).min(1).max(2_592_000_000).default(defaultTreatConfig.timeTreatMs),
+    maxTreats: z.number().step(1).min(1).max(1_000).default(defaultTreatConfig.maxTreats),
+  }),
+  persistDir: z.string(),
+  enabled: z.boolean().default(true),
+  activity: z.object({
+    instanceId: z.string().min(1).max(128),
+    bootId: z.string().min(1).max(128),
+    profile: z.string().min(1).max(64),
+    workspaceLabel: z.string().min(1).max(128),
+  }),
+})
 
-  // The settings surface edits the pet selection + display config through
-  // the 'pet' namespace. The composition 'base' starts as the persisted
-  // pet.json values (clamped to schema bounds), so an empty user layer
-  // resolves to exactly what the pet already shows — a fresh deployment
-  // never overwrites a customized layout, and reset re-inherits it. Runtime
-  // drag interactions mirror back into the settings document through the
-  // service (see syncSettingsFromPet), keeping both views consistent.
+/** Settings section schema for the Electron desktop companion. */
+export const PET_SETTINGS_SCHEMA = z.object({
+  visible: z.boolean().default(true),
+  alwaysOnTop: z.boolean().default(true),
+  locked: z.boolean().default(false),
+  enabled: z.boolean().default(true),
+})
+
+/** Register the pet service, bridge routes, settings, and desktop lifecycle. */
+export function apply(ctx: Context, config: Config = {}): void {
+  const service = new PetService(ctx, config)
+  const petSettingsNamespace = settingsNamespace(PET_SETTINGS_NAMESPACE)
+
+  // The `pet` namespace is the single Host-side source for the desktop
+  // lifecycle and window preferences. Electron mirrors tray/drawer changes
+  // back through `/api/pet/companion-settings`.
   let current: () => PetSettingsSection = () => base
   const base: PetSettingsSection = {
-    visible: service.display().visible,
-    size: service.display().size,
-    right: service.display().right,
-    bottom: service.display().bottom,
-    petId: service.selectedPetId(),
+    ...DEFAULT_PET_COMPANION_SETTINGS,
     enabled: config.enabled ?? true,
   }
-  // The browser half talks to the pet through same-origin JSON endpoints and
-  // loads each pet's atlas from the registry's own media route (RPC domains
-  // are platform-registered, so the pet serves its own API — the same
-  // pattern as dsh-remote-web-ui's /api/pair family). The routes are
-  // registered while the plugin is enabled; toggling the setting off makes
-  // the pet API disappear until it is re-enabled.
   const routes = makePetRoutes({ service })
-  let disposeRoutes: (() => void) | undefined
-  const syncRoutes = (): void => {
-    const enabled = current().enabled ?? true
-    if (disposeRoutes === undefined && enabled) {
-      disposeRoutes = ctx.effect(
-        () => {
-          const disposers = routes.map((route) => ctx.webServer.register(route))
-          return () => { for (const dispose of disposers) dispose() }
-        },
-        'pet: routes',
-      )
-    } else if (disposeRoutes !== undefined && !enabled) {
-      disposeRoutes()
-      disposeRoutes = undefined
+  ctx.effect(() => {
+    const disposers = routes.map(route => ctx.webServer.register(route))
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'pet: routes')
+
+  let disposeDesktop: (() => void) | undefined
+  let migratingLegacySettings = false
+  const migrateLegacySettings = (): void => {
+    if (migratingLegacySettings) return
+    const settings = ctx.get('settings', false) as SettingsProvider | undefined
+    const descriptor = settings?.describe().find(item => item.ns === petSettingsNamespace)
+    const operations = legacyWebSettingOps(descriptor?.user)
+    if (settings === undefined || operations.length === 0) return
+    migratingLegacySettings = true
+    void settings.mutate(petSettingsNamespace, operations).catch(() => {
+      // A read-only or restarting provider can leave harmless legacy keys;
+      // they are ignored by the new schema and retried on the next boot.
+    }).finally(() => { migratingLegacySettings = false })
+  }
+  const syncDesktop = (): void => {
+    if (current().enabled && disposeDesktop === undefined) {
+      disposeDesktop = launchDesktopCompanion(import.meta.url)
+    } else if (!current().enabled && disposeDesktop !== undefined) {
+      disposeDesktop()
+      disposeDesktop = undefined
     }
   }
-  installSettingsSection(
-    ctx,
-    settingsNamespace(PET_SETTINGS_NAMESPACE),
-    makePetSettingsSchema(service.selectedPetId()),
-    base,
-    {
-      setSource: (source) => { current = source },
-      onChange: () => {
-        const section = current()
-        service.applySettingsSection(section)
-        service.setEnabled(section.enabled ?? true)
-        syncRoutes()
-      },
+  ctx.effect(() => () => {
+    disposeDesktop?.()
+    disposeDesktop = undefined
+  }, 'pet: desktop companion')
+  installSettingsSection(ctx, petSettingsNamespace, PET_SETTINGS_SCHEMA, base, {
+    setSource: (source) => { current = source },
+    onChange: () => {
+      const section = current()
+      service.applySettingsSection(section)
+      service.setEnabled(section.enabled)
+      syncDesktop()
+      migrateLegacySettings()
     },
-  )
-  syncRoutes()
+  })
+  service.applySettingsSection(current())
+  service.setEnabled(current().enabled)
+  syncDesktop()
+
+  // Current DSH releases intentionally omit third-party namespaces from the
+  // official Web settings RPC allowlist. A package-owned, loopback-only
+  // fallback keeps standalone installs configurable; aggregate installs keep
+  // using dsh-web-ui-settings through the browser-side compatibility binder.
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.effect(() => {
+      const disposers = makePetSettingsBridgeRoutes(settingsCtx.settings)
+        .map(route => settingsCtx.webServer.register(route))
+      return () => { for (const dispose of disposers) dispose() }
+    }, 'pet: standalone settings bridge')
+  })
 }

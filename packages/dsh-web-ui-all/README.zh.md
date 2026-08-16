@@ -17,6 +17,20 @@ DSH Web UI 全家桶聚合插件：一键安装全部功能插件（task-board /
 dsh plugin --profile web add @linxin666/dsh-web-ui-all
 ```
 
+聚合包包含 `@linxin666/dsh-pet`，其桌面伴侣会通过 `postinstall` 下载当前平台的
+Electron 二进制。pnpm 11 要求目标 profile 显式授权该生命周期脚本。请在
+`$DSH_HOME/profiles/web/pnpm-workspace.yaml` 中加入以下配置；如果首次安装已被
+pnpm 阻止，配置后重新执行安装：
+
+```yaml
+allowBuilds:
+  '@linxin666/dsh-pet': true
+```
+
+该授权具有安全含义，因为它允许依赖的安装代码运行。无论通过聚合包还是独立安装
+桌宠都需要这项授权。本地 tarball、file 或 Git 产物可能会得到包含完整产物 spec
+的授权键；应采用 pnpm 实际打印的键，不要把带本机路径的键提交到共享配置。
+
 ### 从仓库安装（开发调试）
 
 ```sh

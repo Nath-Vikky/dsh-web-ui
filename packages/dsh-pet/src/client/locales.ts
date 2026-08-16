@@ -8,32 +8,16 @@ export const NS = 'pet'
 
 /** Chinese copy. */
 export const zh = {
-  'pet.feed': '喂食',
-  'pet.hide': '隐藏',
-  'pet.rename': '改名',
-  'pet.confirm': '确定',
-  'pet.namePlaceholder': '输入新名字',
-  'pet.summon': '召唤{name}',
-  'pet.rank': '亲密度 {rank}',
-  'pet.points': '{points} 点',
-  'pet.treats': '小鱼干 ×{n}',
-  'pet.state.loading': '宠物正在赶来…',
-  'pet.state.error': '宠物迷路了（连接失败）',
-  // 插件设置卡片（settings.plugin.item 席位）。
   'settings.title': '宠物',
-  'settings.description': '选择宠物并调整它的显示布局。',
-  'settings.pet': '宠物',
-  'settings.petHint': '选择显示哪只宠物；每只宠物独立命名，可在宠物悬浮面板改名。',
-  'settings.enabled': '启用宠物',
-  'settings.enabledHint': '关闭后隐藏宠物并停止轮询，可在设置里重新启用。',
-  'settings.visible': '显示宠物',
-  'settings.visibleHint': '关闭后宠物隐藏，可从聊天输入区重新召唤。',
-  'settings.size': '大小（px）',
-  'settings.sizeHint': '精灵单元高度，范围 32–512。',
-  'settings.right': '距右侧（px）',
-  'settings.rightHint': '距视口右边缘的水平内缩距离。',
-  'settings.bottom': '距底部（px）',
-  'settings.bottomHint': '距视口底边的垂直内缩距离。',
+  'settings.description': '管理随 DSH 运行的桌面宠物。模型和对应名字请在桌宠面板中管理。',
+  'settings.enabled': '启动桌面宠物',
+  'settings.enabledHint': '随 DeepSeek Harness 启动或关闭桌面宠物进程。',
+  'settings.visible': '显示桌面宠物',
+  'settings.visibleHint': '隐藏后仍可从系统托盘恢复显示。',
+  'settings.alwaysOnTop': '窗口置顶',
+  'settings.alwaysOnTopHint': '让桌面宠物保持在普通窗口上方。',
+  'settings.locked': '锁定位置',
+  'settings.lockedHint': '锁定后禁止拖动桌面宠物。',
   'settings.inherit': '继承',
   'settings.on': '开',
   'settings.off': '关',
@@ -53,32 +37,16 @@ export const zh = {
 
 /** English copy. */
 export const en = {
-  'pet.feed': 'Feed',
-  'pet.hide': 'Hide',
-  'pet.rename': 'Rename',
-  'pet.confirm': 'OK',
-  'pet.namePlaceholder': 'Enter a new name',
-  'pet.summon': 'Summon {name}',
-  'pet.rank': 'Affinity {rank}',
-  'pet.points': '{points} pts',
-  'pet.treats': 'Treats ×{n}',
-  'pet.state.loading': 'The pet is on its way…',
-  'pet.state.error': 'The pet is lost (connection failed)',
-  // Plugin settings card (the `settings.plugin.item` seat).
   'settings.title': 'Pet',
-  'settings.description': 'Pick a pet and tune its display layout.',
-  'settings.pet': 'Pet',
-  'settings.petHint': 'Choose which pet shows. Names are stored per pet; rename from the pet hover panel.',
-  'settings.enabled': 'Enable the pet',
-  'settings.enabledHint': 'When off, the pet hides and polling stops; re-enable it here.',
-  'settings.visible': 'Show the pet',
-  'settings.visibleHint': 'When off, the pet hides; summon it again from the input row.',
-  'settings.size': 'Size (px)',
-  'settings.sizeHint': 'Sprite cell height, 32\u2013512.',
-  'settings.right': 'Right inset (px)',
-  'settings.rightHint': 'Horizontal inset from the viewport right edge.',
-  'settings.bottom': 'Bottom inset (px)',
-  'settings.bottomHint': 'Vertical inset from the viewport bottom edge.',
+  'settings.description': 'Manage the desktop pet that runs with DSH. Choose models and per-model names from the pet panel.',
+  'settings.enabled': 'Launch desktop pet',
+  'settings.enabledHint': 'Start and stop the desktop pet process with DeepSeek Harness.',
+  'settings.visible': 'Show desktop pet',
+  'settings.visibleHint': 'When hidden, the pet can still be restored from the system tray.',
+  'settings.alwaysOnTop': 'Always on top',
+  'settings.alwaysOnTopHint': 'Keep the desktop pet above ordinary windows.',
+  'settings.locked': 'Lock position',
+  'settings.lockedHint': 'Prevent the desktop pet from being dragged.',
   'settings.inherit': 'Inherit',
   'settings.on': 'On',
   'settings.off': 'Off',
@@ -101,35 +69,6 @@ export type PetKey = keyof typeof zh
 
 /** The settings-card slice of the pet dictionary. */
 export type SettingsCardKey = PetKey
-
-/**
- * Active dictionary, picked by the document language at call time. The pet
- * mounts as a global floating surface (not a session-scoped slot), so it has
- * no framework locale seat and resolves its copy the same tiny way the
- * task-board's DOM-injected surface does.
- */
-export function dictionary(): Record<PetKey, string> {
-  const lang = typeof document !== 'undefined' ? document.documentElement.lang : 'zh'
-  return lang.toLowerCase().startsWith('en') ? en : zh
-}
-
-/**
- * Translate a key with optional `{name}` template params. Mirrors the slot
- * `Translate` contract `(key, params?) => string` so it can be handed to the
- * same components that used to receive the framework-injected `t` seat. The
- * key is typed loosely (`string`) so the function is assignable to the slot's
- * `TranslateNS<'pet'>` (whose key domain also spans the shared common
- * vocabulary); a missing key degrades to the key itself rather than throwing.
- */
-export function t(key: string, params?: Record<string, unknown>): string {
-  let text: string = (dictionary() as Record<string, string>)[key] ?? key
-  if (params !== undefined) {
-    for (const [name, value] of Object.entries(params)) {
-      text = text.replaceAll(`{${name}}`, String(value))
-    }
-  }
-  return text
-}
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {

@@ -1,139 +1,217 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createServer, type Server } from 'node:http'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { once } from 'node:events'
-import type { AddressInfo } from 'node:net'
-import { Context } from '@deepseek-ai/cordis'
-import { PetService } from '../src/service.ts'
+import { EventEmitter } from 'node:events'
+import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
+import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
+import { describe, expect, it, vi } from 'vitest'
 import { makePetRoutes } from '../src/routes.ts'
-import { loadPetRegistry } from '../src/registry.ts'
+import type { PetService, PetStateView } from '../src/service.ts'
 
-const WEBP_BYTES = Buffer.from([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50])
-const GIF_BYTES = Buffer.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
+class TestRequest extends EventEmitter {
+  readonly headers: IncomingHttpHeaders = {}
+  destroyed = false
 
-let dir: string
-let server: Server
-let port: number
+  constructor(readonly method: string) {
+    super()
+  }
 
-beforeAll(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'dsh-pet-routes-'))
-  const assets = join(dir, 'assets')
-  mkdirSync(join(assets, 'whale'), { recursive: true })
-  writeFileSync(join(assets, 'whale', 'pet.json'), JSON.stringify({
-    id: 'whale-girl', displayName: '鲸鱼娘', spritesheetPath: 'spritesheet.webp',
-  }), 'utf8')
-  writeFileSync(join(assets, 'whale', 'spritesheet.webp'), WEBP_BYTES)
-  mkdirSync(join(assets, 'whale', 'previews'), { recursive: true })
-  writeFileSync(join(assets, 'whale', 'previews', 'idle.gif'), GIF_BYTES)
-  mkdirSync(join(assets, 'otter'), { recursive: true })
-  writeFileSync(join(assets, 'otter', 'pet.json'), JSON.stringify({
-    id: 'otter', displayName: '水獭', spritesheetPath: 'spritesheet.webp',
-  }), 'utf8')
-  writeFileSync(join(assets, 'otter', 'spritesheet.webp'), WEBP_BYTES)
-
-  const ctx = new Context()
-  const registry = loadPetRegistry({ packageRoot: dir, petsDir: '' })
-  const service = new PetService(ctx, { persistDir: join(dir, 'home'), registry })
-  const routes = makePetRoutes({ service })
-  server = createServer((req, res) => {
-    const pathname = (req.url ?? '').split('?')[0]!
-    for (const route of routes) {
-      if (route.kind === 'exact' && pathname === route.path) {
-        void route.handler(req, res)
-        return
-      }
-    }
-    for (const route of routes) {
-      if (route.kind === 'prefix' && (pathname === route.path || pathname.startsWith(route.path + '/'))) {
-        void route.handler(req, res)
-        return
-      }
-    }
-    res.writeHead(404)
-    res.end()
-  })
-  server.listen(0, '127.0.0.1')
-  await once(server, 'listening')
-  port = (server.address() as AddressInfo).port
-})
-
-afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()))
-  rmSync(dir, { recursive: true, force: true })
-})
-
-function url(path: string): string {
-  return 'http://127.0.0.1:' + port + path
+  destroy(): this {
+    this.destroyed = true
+    return this
+  }
 }
 
-describe('pet routes', () => {
-  it('lists the registry and the selected state', async () => {
-    const pets = await fetch(url('/api/pet/pets')).then(res => res.json()) as Array<{ id: string; atlasUrl: string }>
-    expect(pets.map(entry => entry.id)).toEqual(['otter', 'whale-girl'])
-    expect(pets.find(entry => entry.id === 'whale-girl')!.atlasUrl).toBe('/pet/whale-girl/spritesheet.webp')
+class TestResponse {
+  status = 0
+  headers: Record<string, string> = {}
+  body: Buffer = Buffer.alloc(0)
+  private finish!: () => void
+  readonly finished = new Promise<void>((resolve) => { this.finish = resolve })
 
-    const state = await fetch(url('/api/pet/state')).then(res => res.json()) as { pet: { id: string }; name: string }
-    expect(state.pet.id).toBe('whale-girl')
-    expect(state.name).toBe('鲸鱼娘')
+  writeHead(status: number, headers: Record<string, string> = {}): this {
+    this.status = status
+    this.headers = headers
+    return this
+  }
+
+  write(chunk: string | Buffer): boolean {
+    const next = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    this.body = Buffer.concat([this.body, next])
+    return true
+  }
+
+  end(chunk?: string | Buffer): this {
+    if (chunk !== undefined) this.write(chunk)
+    this.finish()
+    return this
+  }
+}
+
+interface ServiceStub {
+  state: ReturnType<typeof vi.fn>
+  subscribeState: ReturnType<typeof vi.fn>
+  interact: ReturnType<typeof vi.fn>
+  setCompanionSettings: ReturnType<typeof vi.fn>
+}
+
+const stateView: PetStateView = {
+  animation: 'idle',
+  phase: 'idle',
+  sessionActive: false,
+  affinity: {
+    points: 0,
+    rank: '幼鲸',
+    rankEmoji: '*',
+    pets: 0,
+    feeds: 0,
+    turns: 0,
+    petCooldown: false,
+    feedCooldown: false,
+  },
+  companion: { enabled: true, visible: true, alwaysOnTop: true, locked: false },
+  treats: { stocked: 0, max: 20 },
+}
+
+function serviceStub(): ServiceStub {
+  return {
+    state: vi.fn().mockResolvedValue(stateView),
+    subscribeState: vi.fn((listener: (snapshot: PetStateView) => void) => {
+      listener(stateView)
+      return () => undefined
+    }),
+    interact: vi.fn().mockResolvedValue({ reaction: '好呀', delta: 1, affinity: stateView.affinity }),
+    setCompanionSettings: vi.fn().mockResolvedValue({ ok: true, companion: stateView.companion }),
+  }
+}
+
+function routeByPath(routes: WebRoute[], path: string): WebRoute {
+  const route = routes.find((candidate) => candidate.path === path)
+  if (route === undefined) throw new Error(`missing route ${path}`)
+  return route
+}
+
+async function invoke(route: WebRoute, method: string, body?: unknown): Promise<TestResponse> {
+  const req = new TestRequest(method)
+  const res = new TestResponse()
+  const pending = route.handler(req as unknown as IncomingMessage, res as unknown as ServerResponse)
+  if (body !== undefined) req.emit('data', Buffer.from(JSON.stringify(body)))
+  req.emit('end')
+  await pending
+  await res.finished
+  return res
+}
+
+describe('pet HTTP contract', () => {
+  it('keeps the public route inventory stable', () => {
+    const service = serviceStub()
+    const routes = makePetRoutes({ service: service as unknown as PetService })
+
+    expect(routes.map(({ kind, path }) => ({ kind, path }))).toEqual([
+      { kind: 'exact', path: '/api/pet/state' },
+      { kind: 'exact', path: '/api/pet/events' },
+      { kind: 'exact', path: '/api/pet/interact' },
+      { kind: 'exact', path: '/api/pet/companion-settings' },
+    ])
   })
 
-  it('serves the atlas under the pet id and the legacy directory alias', async () => {
-    for (const path of ['/pet/whale-girl/spritesheet.webp', '/pet/whale/spritesheet.webp']) {
-      const res = await fetch(url(path))
+  it('streams full snapshots, heartbeats, and releases the listener on close', () => {
+    vi.useFakeTimers()
+    try {
+      const service = serviceStub()
+      const unsubscribe = vi.fn()
+      service.subscribeState.mockImplementation((listener: (snapshot: PetStateView) => void) => {
+        listener(stateView)
+        return unsubscribe
+      })
+      const routes = makePetRoutes({ service: service as unknown as PetService })
+      const req = new TestRequest('GET')
+      const res = new TestResponse()
+
+      routeByPath(routes, '/api/pet/events').handler(
+        req as unknown as IncomingMessage,
+        res as unknown as ServerResponse,
+      )
+
       expect(res.status).toBe(200)
-      expect(res.headers.get('content-type')).toBe('image/webp')
-      expect(Buffer.from(await res.arrayBuffer())).toEqual(WEBP_BYTES)
+      expect(res.headers['content-type']).toBe('text/event-stream; charset=utf-8')
+      expect(res.body.toString('utf8')).toContain(`data: ${JSON.stringify(stateView)}\n\n`)
+      const beforeHeartbeat = res.body.byteLength
+      vi.advanceTimersByTime(15_000)
+      expect(res.body.byteLength).toBeGreaterThan(beforeHeartbeat)
+      expect(res.body.toString('utf8')).toContain(': heartbeat\n\n')
+
+      req.emit('close')
+      expect(unsubscribe).toHaveBeenCalledOnce()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
     }
   })
 
-  it('serves the manifest and optional preview media', async () => {
-    const manifest = await fetch(url('/pet/whale-girl/pet.json')).then(res => res.json()) as { id: string; spritesheetPath: string }
-    expect(manifest.id).toBe('whale-girl')
-    expect(manifest.spritesheetPath).toBe('spritesheet.webp')
+  it('does not retain an SSE subscription when the initial write closes', () => {
+    vi.useFakeTimers()
+    try {
+      const service = serviceStub()
+      const unsubscribe = vi.fn()
+      service.subscribeState.mockImplementation((listener: (snapshot: PetStateView) => void) => {
+        listener(stateView)
+        return unsubscribe
+      })
+      const routes = makePetRoutes({ service: service as unknown as PetService })
+      const req = new TestRequest('GET')
+      const res = new TestResponse()
+      vi.spyOn(res, 'write').mockImplementation(() => { throw new Error('closed') })
 
-    const preview = await fetch(url('/pet/whale-girl/previews/idle.gif'))
-    expect(preview.status).toBe(200)
-    expect(preview.headers.get('content-type')).toBe('image/gif')
-    expect(Buffer.from(await preview.arrayBuffer())).toEqual(GIF_BYTES)
+      routeByPath(routes, '/api/pet/events').handler(
+        req as unknown as IncomingMessage,
+        res as unknown as ServerResponse,
+      )
+
+      expect(unsubscribe).toHaveBeenCalledOnce()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
-  it('answers HEAD on assets and 404s unknown pets and undeclared files', async () => {
-    const head = await fetch(url('/pet/whale-girl/spritesheet.webp'), { method: 'HEAD' })
-    expect(head.status).toBe(200)
-    expect(head.headers.get('content-type')).toBe('image/webp')
+  it('returns the service state as same-origin JSON', async () => {
+    const service = serviceStub()
+    const routes = makePetRoutes({ service: service as unknown as PetService })
 
-    expect((await fetch(url('/pet/dragon/spritesheet.webp'))).status).toBe(404)
-    expect((await fetch(url('/pet/whale-girl/evil.txt'))).status).toBe(404)
-    expect((await fetch(url('/pet/whale-girl/spritesheet.png'))).status).toBe(404)
+    const res = await invoke(routeByPath(routes, '/api/pet/state'), 'GET')
+
+    expect(res.status).toBe(200)
+    expect(res.headers).toEqual({ 'content-type': 'application/json; charset=utf-8' })
+    expect(JSON.parse(res.body.toString('utf8'))).toEqual(stateView)
+    expect(service.state).toHaveBeenCalledOnce()
   })
 
-  it('switches pets and renames per pet through the API', async () => {
-    const setPet = await fetch(url('/api/pet/set-pet'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ petId: 'otter' }),
-    }).then(res => res.json()) as { ok: boolean }
-    expect(setPet.ok).toBe(true)
+  it('validates interactions and filters desktop companion patches before forwarding', async () => {
+    const service = serviceStub()
+    const routes = makePetRoutes({ service: service as unknown as PetService })
 
-    const renamed = await fetch(url('/api/pet/set-name'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: '阿獭' }),
-    }).then(res => res.json()) as { ok: boolean; name: string }
-    expect(renamed).toMatchObject({ ok: true, name: '阿獭' })
+    const interaction = await invoke(routeByPath(routes, '/api/pet/interact'), 'POST', { kind: 'pet' })
+    expect(interaction.status).toBe(200)
+    expect(service.interact).toHaveBeenCalledWith('pet')
 
-    const state = await fetch(url('/api/pet/state')).then(res => res.json()) as { pet: { id: string }; name: string }
-    expect(state).toMatchObject({ pet: { id: 'otter' }, name: '阿獭' })
+    const invalid = await invoke(routeByPath(routes, '/api/pet/interact'), 'POST', { kind: 'play' })
+    expect(invalid.status).toBe(400)
+    expect(JSON.parse(invalid.body.toString('utf8'))).toEqual({ ok: false, error: 'invalid-kind' })
 
-    const back = await fetch(url('/api/pet/set-pet'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ petId: 'whale-girl' }),
-    }).then(res => res.json()) as { ok: boolean }
-    expect(back.ok).toBe(true)
-    const whaleState = await fetch(url('/api/pet/state')).then(res => res.json()) as { name: string }
-    expect(whaleState.name).toBe('鲸鱼娘')
+    const config = await invoke(routeByPath(routes, '/api/pet/companion-settings'), 'POST', {
+      visible: false,
+      alwaysOnTop: true,
+      locked: true,
+      ignored: true,
+    })
+    expect(config.status).toBe(200)
+    expect(service.setCompanionSettings).toHaveBeenCalledWith({
+      visible: false,
+      alwaysOnTop: true,
+      locked: true,
+    })
+
+    const invalidConfig = await invoke(routeByPath(routes, '/api/pet/companion-settings'), 'POST', {
+      visible: 'no',
+    })
+    expect(invalidConfig.status).toBe(400)
   })
 })
