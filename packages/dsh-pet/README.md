@@ -28,6 +28,7 @@ Re-implemented from the pet feature of the Codex desktop app, as an official DSH
 | Web + desktop coexistence | The existing browser pet remains available while an optional managed Electron surface can run beside it; the two presentation switches are independent |
 | Shared economy | Browser and desktop interactions call the same Host-owned `PetService`, so affinity, treats, cooldowns and completed-turn rewards have one writer and one `pet.json` |
 | Managed desktop lifecycle | The desktop pet is off by default; enable it from the Pet settings page and it starts/stops with the current DSH Host, with loopback-only token authentication and SSE updates |
+| On-demand desktop runtime | Installing the plugin does not download Electron. First enable opens a confirmation dialog with official, npmmirror, or custom HTTPS sources, progress/cancel/retry controls, and pinned SHA-256 verification before the switch is persisted |
 | Desktop ergonomics | Scale choices are limited to 100%–200% to keep the sprite uncropped; the hover controls open toward the available vertical space, session-status bubbles overlay the sprite without enlarging its window, and quitting from the tray also turns off the persisted desktop switch |
 
 ## Pet contract
@@ -97,6 +98,7 @@ dsh-pet/
 |   |-- treats.ts            # dried-fish stock ledger
 |   |-- persist.ts           # persistence ($DSH_HOME/pet.json: selection + names + interaction counts)
 |   |-- routes.ts            # /api/pet/* JSON API + /pet/<id>/* asset routes
+|   |-- runtime/             # checksum-pinned, on-demand Electron runtime manager
 |   |-- core/                # renderer-neutral intent and activity contracts
 |   |-- presentation/        # desktop presentation lifecycle and resolver
 |   `-- client/             # browser half
@@ -130,7 +132,7 @@ global React root (browser, polling 2s)             Electron desktop presentatio
 - **Multi-session semantics**: the API and browser mount are host-global and expose no foreground-session identity. Concurrent sessions each keep their own projected state: the most recent meaningful event drives the sprite animation, while every active TOP-LEVEL session reports its stage in its own bubble (the state view's sessions list, capped at 12 most-recent). Subagent children are tracked for animation, rewards, and the single display bubble but render no bubble of their own, so N conversations never multiply into an N-plus-subagents stack. Every session's completed turns are still rewarded independently; disposing a session removes its bubble, and disposing the display session falls back to the most recent remaining one.
 - **Mount point**: `document.body` (global React root, always shown: no session / new session / mid-session — the old mount point `conversation.composer.dock` only rendered in an active session, hiding the pet in new sessions); the component uses `createPortal` internally to render the global floating layer.
 - **Rendering**: CSS sprite (background-position) per-frame animation; frame durations and optional scene sequences come from the served definition. The hover panel is anchored below the pet with a pointer bridge across the gap.
-- **Communication**: browser ↔ host over the same-origin `/api/pet/*` JSON endpoints (state/pets/interact/set-visible/set-config/set-name/set-pet); each pet's atlas loads from `/pet/<id>/<spritesheetPath>`. A standalone install falls back to the loopback-only `/api/pet/settings` pair when official DSH does not expose third-party settings namespaces; the aggregate Web UI settings bridge remains authoritative when installed. The managed desktop child uses `/api/pet/native/*`, accepts direct loopback peers only, authenticates every request with a per-boot 256-bit bearer token, and receives state changes over SSE. Electron never reads or writes `pet.json` directly.
+- **Communication**: browser ↔ host over the same-origin `/api/pet/*` JSON endpoints (state/pets/interact/set-visible/set-config/set-name/set-pet); each pet's atlas loads from `/pet/<id>/<spritesheetPath>`. A standalone install falls back to the loopback-only `/api/pet/settings` pair when official DSH does not expose third-party settings namespaces; the aggregate Web UI settings bridge remains authoritative when installed. The loopback-only `/api/pet/runtime` routes expose runtime status, install, and cancellation to the Web settings dialog. The managed desktop child uses `/api/pet/native/*`, accepts direct loopback peers only, authenticates every request with a per-boot 256-bit bearer token, and receives state changes over SSE. Electron never reads or writes `pet.json` directly.
 - **Presentation isolation**: `visible` controls only the browser pet; `desktopEnabled` controls the managed Electron lifecycle. Desktop window visibility, scale, lock and always-on-top preferences are separate settings, so hiding or disabling one presentation never disables the other.
 
 ## Install
@@ -149,7 +151,7 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-pet
 
 ```
 
-After installing, **restart `dsh web`** — your selected web pet appears at the bottom-right of the interface. The desktop presentation is off by default; open Settings → Pet, enable **Desktop pet**, then save. When the optional Electron runtime is unavailable the web pet continues to work normally. In link mode, `pnpm build` and refresh the page after a code change; no reinstall needed.
+After installing, **restart `dsh web`** — your selected web pet appears at the bottom-right of the interface. Installing this package does **not** download Electron. The desktop presentation is off by default; open Settings → Pet and enable **Desktop pet**. On first enable, review the separate Electron download, select the official source, npmmirror, or a custom HTTPS mirror, then follow its progress. The Host stores the checksum-verified runtime under `$DSH_HOME/cache/dsh-pet/electron` and persists the switch only after installation succeeds; cancellation or failure leaves the web pet working normally. In link mode, `pnpm build` and refresh the page after a code change; no reinstall is needed.
 
 ## Development
 
@@ -160,6 +162,8 @@ pnpm desktop:dev    # run the Electron presentation in development mode
 pnpm desktop:smoke  # bounded real Electron smoke test
 pnpm typecheck      # host, browser, test and desktop type checks
 ```
+
+`electron` is a source-development dependency for the desktop build only; it is not a runtime dependency of the published plugin. End-user Electron installation remains an explicit first-enable action in the Web settings dialog.
 
 The browser bundle rides the `window.__ModuleLoader__.load` contract; React/cordis and so on resolve from the loader's module table (external); CSS Modules are inlined by lightningcss as `<style data-plugin>`.
 

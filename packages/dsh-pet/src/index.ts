@@ -14,14 +14,17 @@
 import { Context } from '@deepseek-ai/cordis'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import { join } from 'node:path'
 import z from 'schemastery'
 import { PetService, PET_SETTINGS_NAMESPACE, type PetConfig, type PetSettingsSection } from './service.ts'
-import { makePetRoutes, makePetSettingsRoutes } from './routes.ts'
+import { makePetRoutes, makePetRuntimeRoutes, makePetSettingsRoutes } from './routes.ts'
 import { loadPetRegistry, petPackageRoot } from './registry.ts'
 import { DISPLAY_INSET_MAX, DISPLAY_SIZE_MAX, DISPLAY_SIZE_MIN } from './persist.ts'
 import { mountOnce } from './mount-once.ts'
 import { createPetNativeToken } from './adapters/web/native-auth.ts'
 import { launchDesktopCompanion } from './desktop-companion.ts'
+import { dshHome } from './dsh-home.ts'
+import { ElectronRuntimeManager } from './runtime/electron-runtime.ts'
 import {
   DEFAULT_PET_DESKTOP_SETTINGS,
   PET_DESKTOP_SCALE_MAX,
@@ -116,6 +119,7 @@ export type {
 
 export {
   makePetRoutes,
+  makePetRuntimeRoutes,
   makePetSettingsRoutes,
   PET_API_PREFIX,
   PET_ASSET_PREFIX,
@@ -164,6 +168,9 @@ function applyImpl(ctx: Context, config: PetConfig = {}): void {
       ...(config.pets === undefined ? {} : { extra: config.pets }),
     })
   const service = new PetService(ctx, { ...config, registry })
+  const runtime = new ElectronRuntimeManager({
+    root: join(dshHome(), 'cache', 'dsh-pet', 'electron'),
+  })
 
   // The settings surface edits the pet selection + display config through
   // the 'pet' namespace. The composition 'base' starts as the persisted
@@ -194,7 +201,7 @@ function applyImpl(ctx: Context, config: PetConfig = {}): void {
   // the pet API disappear until it is re-enabled.
   const nativeToken = createPetNativeToken()
   const routes = makePetRoutes({ service, nativeToken })
-  const settingsRoutes = makePetSettingsRoutes(service)
+  const settingsRoutes = [...makePetSettingsRoutes(service), ...makePetRuntimeRoutes(runtime)]
   ctx.effect(
     () => {
       const disposers = settingsRoutes.map(route => ctx.webServer.register(route))
@@ -222,12 +229,14 @@ function applyImpl(ctx: Context, config: PetConfig = {}): void {
   const syncDesktop = (): void => {
     const section = current()
     const shouldRun = (section.enabled ?? true) && (section.desktopEnabled ?? false)
-    if (shouldRun && disposeDesktop === undefined) {
+    const runtimeExecutable = runtime.executablePath()
+    if (shouldRun && runtimeExecutable !== undefined && disposeDesktop === undefined) {
       disposeDesktop = launchDesktopCompanion(
         import.meta.url,
         process.pid,
         `http://127.0.0.1:${String(ctx.webServer.port)}`,
         nativeToken,
+        runtimeExecutable,
       )
     } else if (!shouldRun && disposeDesktop !== undefined) {
       disposeDesktop()
@@ -238,6 +247,13 @@ function applyImpl(ctx: Context, config: PetConfig = {}): void {
     disposeDesktop?.()
     disposeDesktop = undefined
   }, 'pet: desktop companion')
+  const unsubscribeRuntime = runtime.subscribe((state) => {
+    if (state.phase === 'ready') syncDesktop()
+  })
+  ctx.effect(() => () => {
+    unsubscribeRuntime()
+    runtime.dispose()
+  }, 'pet: desktop runtime')
   installSettingsSection(
     ctx,
     settingsNamespace(PET_SETTINGS_NAMESPACE),

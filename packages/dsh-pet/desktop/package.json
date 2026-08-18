@@ -2,6 +2,6 @@
   "name": "@linxin666/dsh-pet-desktop",
   "version": "0.0.0-development",
   "private": true,
-  "description": "Bundled Electron runtime for @linxin666/dsh-pet.",
+  "description": "Managed desktop presentation for @linxin666/dsh-pet.",
   "main": "./out/main/index.js"
 }

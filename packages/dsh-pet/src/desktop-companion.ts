@@ -10,6 +10,17 @@ export interface DesktopCompanionTarget {
   executablePath: string
 }
 
+/** Resolve a workspace Electron dependency for source-development only. */
+export function developmentElectronExecutable(moduleUrl: string): string | undefined {
+  let executablePath: unknown
+  try {
+    executablePath = createRequire(moduleUrl)('electron')
+  } catch {
+    return undefined
+  }
+  return typeof executablePath === 'string' && existsSync(executablePath) ? executablePath : undefined
+}
+
 /** Build the private child environment without inheriting stale connection credentials. */
 export function desktopCompanionEnvironment(
   parentPid: number,
@@ -28,23 +39,20 @@ export function desktopCompanionEnvironment(
   return environment
 }
 
-/** Resolve the desktop runtime shipped inside this plugin package. */
-export function desktopCompanionTarget(moduleUrl: string): DesktopCompanionTarget | undefined {
+/** Resolve the built desktop application against one explicitly selected Electron executable. */
+export function desktopCompanionTarget(
+  moduleUrl: string,
+  runtimeExecutable = developmentElectronExecutable(moduleUrl),
+): DesktopCompanionTarget | undefined {
   const moduleDirectory = dirname(fileURLToPath(moduleUrl))
   const packageRoot = resolve(moduleDirectory, '..')
   const appRoot = join(packageRoot, 'desktop')
   const entryPath = join(appRoot, 'out', 'main', 'index.js')
-  let executablePath: unknown
-  try {
-    executablePath = createRequire(moduleUrl)('electron')
-  } catch {
-    return undefined
-  }
-  if (typeof executablePath !== 'string'
-    || !existsSync(executablePath)
+  if (runtimeExecutable === undefined
+    || !existsSync(runtimeExecutable)
     || !existsSync(join(appRoot, 'package.json'))
     || !existsSync(entryPath)) return undefined
-  return { appRoot, entryPath, executablePath }
+  return { appRoot, entryPath, executablePath: runtimeExecutable }
 }
 
 /** Launch the packaged Electron app and bind its lifetime to this Host process. */
@@ -53,13 +61,14 @@ export function launchDesktopCompanion(
   parentPid = process.pid,
   origin?: string,
   nativeToken?: string,
+  runtimeExecutable?: string,
 ): () => void {
   if (process.env.VITEST !== undefined
     || process.env.NODE_ENV === 'test'
     || process.env.DSH_PET_DISABLE_DESKTOP === '1') return () => undefined
-  const target = desktopCompanionTarget(moduleUrl)
+  const target = desktopCompanionTarget(moduleUrl, runtimeExecutable)
   if (target === undefined) {
-    console.warn('dsh-pet: 桌面伴侣不可用；请确认插件已构建，并在 DSH profile 中授权 @linxin666/dsh-pet 安装 Electron')
+    console.warn('dsh-pet: 桌面伴侣不可用；请确认插件已构建，并在宠物设置中安装桌面运行环境')
     return () => undefined
   }
 

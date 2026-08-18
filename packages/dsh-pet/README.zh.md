@@ -28,6 +28,7 @@
 | 网页与桌面共存 | 原有浏览器宠物保持可用，同时可选启动受管 Electron 桌面宠物；两种表现形式的开关互不干扰 |
 | 共享经济数据 | 网页与桌面互动都调用同一个宿主持有的 `PetService`，亲密度、小鱼干、冷却和轮次奖励只有一个写入者、一份 `pet.json` |
 | 受管桌面生命周期 | 桌面宠物默认关闭；在宠物设置页启用后随当前 DSH Host 启停，通过仅限回环地址的令牌认证和 SSE 接收更新 |
+| 按需安装桌面运行环境 | 安装插件时不会下载 Electron。首次启用会弹出确认框，可选官方源、npmmirror 或自定义 HTTPS 镜像，并提供进度、取消、重试；固定 SHA-256 校验通过后才持久化开关 |
 | 桌面交互适配 | 大小仅保留 100%–200%，避免精灵被裁剪；悬浮控件朝屏幕可用空间展开，会话状态气泡覆盖显示而不扩大窗口，从托盘退出时也会同步关闭并持久化桌面开关 |
 
 ## 宠物契约
@@ -97,6 +98,7 @@ dsh-pet/
 |   |-- treats.ts            # 小鱼干库存账本
 |   |-- persist.ts           # 持久化（$DSH_HOME/pet.json：选择 + 名字 + 互动计数）
 |   |-- routes.ts            # /api/pet/* JSON API + /pet/<id>/* 静态资源路由
+|   |-- runtime/             # 固定哈希、按需安装的 Electron 运行环境管理器
 |   |-- core/                # 与渲染器无关的意图和活动契约
 |   |-- presentation/        # 桌面表现生命周期与解析器
 |   `-- client/             # 浏览器半区
@@ -130,7 +132,7 @@ dsh-pet/
 - **多会话语义**：API 与浏览器挂载都是宿主全局的，不暴露前台会话身份。并行会话各自保留投影状态：最近一次有意义事件驱动精灵动画，同时每个活动的顶层会话在独立气泡里报告自己的阶段（state 视图的 sessions 列表，最多保留最近 12 个）。子代理会话仍参与动画、计奖与单一显示气泡，但不占独立气泡位——N 个对话不会变成"N + 子代理数"的气泡堆。每个会话完成的轮次仍独立计奖；销毁会话移除它的气泡，销毁当前显示会话则回退到最近仍在活动的会话。
 - **挂载点**：`document.body`（全局 React 根，始终显示：无会话 / 新会话 / 会话中都可见——旧挂载点 `conversation.composer.dock` 只在活动会话里渲染，新会话里宠物消失）；组件内部用 `createPortal` 渲染全局浮层。
 - **渲染**：CSS 精灵（background-position）逐帧动画；帧时长和可选场景序列来自下发定义。悬浮面板锚定在宠物下方，间隙由指针桥接覆盖。
-- **通信**：浏览器 ↔ 宿主走同源 `/api/pet/*` JSON 端点（state/pets/interact/set-visible/set-config/set-name/set-pet）；每只宠物的图集从 `/pet/<id>/<spritesheetPath>` 加载。单独安装时，若官方 DSH 未暴露第三方设置命名空间，设置卡会回退到仅限回环地址的 `/api/pet/settings`；安装 Web UI 全家桶时仍优先使用其设置桥。受管桌面子进程使用 `/api/pet/native/*`，只接受直接回环连接，每次请求都校验本次启动生成的 256 位 bearer token，并通过 SSE 接收状态变化。Electron 不直接读写 `pet.json`。
+- **通信**：浏览器 ↔ 宿主走同源 `/api/pet/*` JSON 端点（state/pets/interact/set-visible/set-config/set-name/set-pet）；每只宠物的图集从 `/pet/<id>/<spritesheetPath>` 加载。单独安装时，若官方 DSH 未暴露第三方设置命名空间，设置卡会回退到仅限回环地址的 `/api/pet/settings`；安装 Web UI 全家桶时仍优先使用其设置桥。仅限回环地址的 `/api/pet/runtime` 路由向网页设置弹窗提供运行环境状态、安装与取消操作。受管桌面子进程使用 `/api/pet/native/*`，只接受直接回环连接，每次请求都校验本次启动生成的 256 位 bearer token，并通过 SSE 接收状态变化。Electron 不直接读写 `pet.json`。
 - **表现隔离**：`visible` 只控制浏览器宠物，`desktopEnabled` 控制受管 Electron 生命周期。桌面窗口显示、大小、锁定和置顶均为独立设置，因此隐藏或关闭任一表现形式都不会关闭另一端。
 
 ## 安装
@@ -149,7 +151,7 @@ dsh plugin --profile web add link:$(pwd)/packages/dsh-pet
 
 ```
 
-安装后**重启 `dsh web`**——你选择的网页宠物出现在界面右下角。桌面表现默认关闭；进入“设置 → 宠物”，打开“启用桌面宠物”并保存。可选 Electron 运行时不可用时，网页宠物仍照常工作。link 模式下改代码后 `pnpm build` 并刷新页面即可，无需重装。
+安装后**重启 `dsh web`**——你选择的网页宠物出现在界面右下角。安装本插件时**不会**下载 Electron。桌面表现默认关闭；进入“设置 → 宠物”并打开“启用桌面宠物”。首次启用会先展示独立下载确认，可选官方源、npmmirror 或自定义 HTTPS 镜像，并显示下载进度。Host 把通过固定 SHA-256 校验的运行环境保存到 `$DSH_HOME/cache/dsh-pet/electron`，只有安装成功才持久化桌面开关；取消或失败不影响网页宠物。link 模式下改代码后 `pnpm build` 并刷新页面即可，无需重装。
 
 ## 开发
 
@@ -160,6 +162,8 @@ pnpm desktop:dev    # 以开发模式运行 Electron 桌面表现
 pnpm desktop:smoke  # 有时限的真实 Electron 冒烟测试
 pnpm typecheck      # 宿主、浏览器、测试与桌面端类型检查
 ```
+
+`electron` 只作为桌面构建的源码开发依赖，不是正式插件的运行时依赖。最终用户仍必须在网页设置弹窗中明确同意，才会首次安装 Electron。
 
 浏览器 bundle 走 `window.__ModuleLoader__.load` 契约；React/cordis 等从 loader 模块表解析（external）；CSS Modules 由 lightningcss 以内联 `<style data-plugin>` 编译进 bundle。
 

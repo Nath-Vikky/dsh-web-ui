@@ -1,0 +1,147 @@
+.runtimeStatus {
+  display: block;
+  margin-top: 5px;
+  color: var(--dsw-text-secondary, #6e7781);
+  font-size: 11px;
+}
+
+.installMissing {
+  justify-self: start;
+  border: 1px solid var(--dsw-border, #d0d7de);
+  border-radius: 7px;
+  padding: 5px 10px;
+  color: var(--dsw-accent, #2f81f7);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.backdrop {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(15 23 42 / 42%);
+}
+
+.dialog {
+  width: min(440px, 100%);
+  border: 1px solid var(--dsw-border, #d0d7de);
+  border-radius: 14px;
+  padding: 20px;
+  color: var(--dsw-text-primary, #1f2328);
+  background: var(--dsw-surface, #fff);
+  box-shadow: 0 18px 60px rgb(15 23 42 / 28%);
+}
+
+.dialogHeader h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.dialogHeader p {
+  margin: 7px 0 18px;
+  color: var(--dsw-text-secondary, #6e7781);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.sourceLabel {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sourceSelect,
+.sourceInput {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-border, #d0d7de);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: inherit;
+  background: var(--dsw-surface, #fff);
+  font: inherit;
+  font-size: 12px;
+}
+
+.sourceInput {
+  margin-top: 8px;
+}
+
+.progressBlock {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.progressText {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--dsw-accent, #2f81f7);
+}
+
+.bytes,
+.security {
+  color: var(--dsw-text-secondary, #6e7781);
+  font-size: 11px;
+}
+
+.security {
+  margin: 14px 0 0;
+  line-height: 1.5;
+}
+
+.error {
+  margin: 12px 0 0;
+  color: var(--dsw-danger, #cf222e);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.cancel,
+.install {
+  border: 1px solid var(--dsw-border, #d0d7de);
+  border-radius: 8px;
+  padding: 7px 13px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cancel {
+  color: inherit;
+  background: transparent;
+}
+
+.install {
+  border-color: var(--dsw-accent, #2f81f7);
+  color: #fff;
+  background: var(--dsw-accent, #2f81f7);
+}
+
+.install:disabled,
+.sourceSelect:disabled,
+.sourceInput:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

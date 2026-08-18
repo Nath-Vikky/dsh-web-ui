@@ -28,12 +28,16 @@ import {
   isTrustedPetBrowserRequest,
 } from './adapters/web/native-auth.ts'
 import { petEntryView, type PetEntry, type PetRegistry } from './registry.ts'
+import type { ElectronRuntimeManager } from './runtime/electron-runtime.ts'
 
 /** Browser-facing base path of the pet API. */
 export const PET_API_PREFIX = '/api/pet'
 
 /** Standalone settings bridge; always mounted even when the pet is disabled. */
 export const PET_SETTINGS_API_PREFIX = `${PET_API_PREFIX}/settings`
+
+/** Browser-facing, loopback-only Electron runtime installer. */
+export const PET_RUNTIME_API_PREFIX = `${PET_API_PREFIX}/runtime`
 
 /** Authenticated loopback bridge consumed only by the managed desktop child. */
 export const PET_NATIVE_API_PREFIX = `${PET_API_PREFIX}/native`
@@ -229,6 +233,18 @@ export function makePetSettingsRoutes(service: PetService): WebRoute[] {
       if (request === undefined) return Promise.reject(new Error('invalid-pet-settings-mutation'))
       return service.mutateSettings(request.ops, request.expectedRevision)
     }, undefined, requireTrustedBrowser),
+  ]
+}
+
+/** Runtime installation routes stay reachable before the desktop presentation exists. */
+export function makePetRuntimeRoutes(runtime: ElectronRuntimeManager): WebRoute[] {
+  return [
+    getRoute(PET_RUNTIME_API_PREFIX, async () => runtime.state(), undefined, requireTrustedBrowser),
+    postRoute(`${PET_RUNTIME_API_PREFIX}/install`, async body => runtime.startInstall({
+      source: body.source,
+      ...(body.customMirror === undefined ? {} : { customMirror: body.customMirror }),
+    }), undefined, requireTrustedBrowser),
+    postRoute(`${PET_RUNTIME_API_PREFIX}/cancel`, async () => runtime.cancelInstall(), undefined, requireTrustedBrowser),
   ]
 }
 

@@ -8,7 +8,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useSyncExternalStore, type ComponentProps } from 'react'
 import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 // The npm SDK's client half is a closure-factory bundle for the GUI's
@@ -29,7 +29,10 @@ vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
 import { PetSettingsSection, PetSettingsCardController, type PetSettingsSectionProps, type PetSettings } from '../src/client/PetSettingsCard.tsx'
 import { en } from '../src/client/locales.ts'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 /** English translate stub (same shape the sibling settings-card tests use). */
 const t: PetSettingsSectionProps['t'] = (key) => {
@@ -99,5 +102,96 @@ describe('PetSettingsSection', () => {
     const desktop = screen.getByRole('switch', { name: /enable the desktop pet/i })
     expect(desktop.id).toBe('settings-pet-desktop-enabled')
     expect(desktop.getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('asks for a mirror and persists desktop enable only after runtime installation succeeds', async () => {
+    const runtimeMissing = {
+      version: '43.4.0',
+      platform: 'win32',
+      arch: 'x64',
+      phase: 'not-installed',
+      installed: false,
+      managed: false,
+      source: 'official',
+    }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/pet/pets') return new Response('[]', { status: 200 })
+      if (url === '/api/pet/runtime' && init === undefined) {
+        return Response.json(runtimeMissing)
+      }
+      if (url === '/api/pet/runtime/install') {
+        return Response.json({
+          ...runtimeMissing,
+          phase: 'ready',
+          installed: true,
+          managed: true,
+          source: 'npmmirror',
+        })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const scope = new FakeScope({ desktopEnabled: false })
+
+    render(<PetSettingsSection {...sectionProps(scope)} />)
+    await screen.findByText(/desktop runtime is not installed/i)
+    fireEvent.click(screen.getByRole('switch', { name: /enable the desktop pet/i }))
+
+    const dialog = await screen.findByRole('dialog', { name: /install the desktop pet runtime/i })
+    fireEvent.change(screen.getByLabelText(/download source/i), { target: { value: 'npmmirror' } })
+    fireEvent.click(screen.getByRole('button', { name: /download and enable/i }))
+
+    await waitFor(() => {
+      expect(scope.set).toHaveBeenCalledWith('desktopEnabled', true)
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
+    const installCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/pet/runtime/install')
+    expect(JSON.parse(String(installCall?.[1]?.body))).toEqual({ source: 'npmmirror' })
+    expect(dialog).toBeDefined()
+  })
+
+  it('shows download progress, supports cancellation, and does not enable early', async () => {
+    const runtimeMissing = {
+      version: '43.4.0',
+      platform: 'win32',
+      arch: 'x64',
+      phase: 'not-installed',
+      installed: false,
+      managed: false,
+      source: 'official',
+    }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/pet/pets') return new Response('[]', { status: 200 })
+      if (url === '/api/pet/runtime' && init === undefined) return Response.json(runtimeMissing)
+      if (url === '/api/pet/runtime/install') {
+        return Response.json({
+          ...runtimeMissing,
+          phase: 'downloading',
+          source: 'official',
+          progress: { transferred: 6 * 1024 * 1024, total: 10 * 1024 * 1024, percent: 0.6 },
+        })
+      }
+      if (url === '/api/pet/runtime/cancel') return Response.json(runtimeMissing)
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const scope = new FakeScope({ desktopEnabled: false })
+
+    render(<PetSettingsSection {...sectionProps(scope)} />)
+    await screen.findByText(/desktop runtime is not installed/i)
+    fireEvent.click(screen.getByRole('switch', { name: /enable the desktop pet/i }))
+    await screen.findByRole('dialog')
+    fireEvent.click(screen.getByRole('button', { name: /download and enable/i }))
+
+    expect(await screen.findByText('60%')).toBeDefined()
+    expect(screen.getByText('6.0 MB / 10.0 MB')).toBeDefined()
+    expect(scope.set).not.toHaveBeenCalledWith('desktopEnabled', true)
+    fireEvent.click(screen.getByRole('button', { name: /cancel download/i }))
+
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/pet/runtime/cancel')).toBe(true)
+    expect(scope.set).not.toHaveBeenCalledWith('desktopEnabled', true)
   })
 })
