@@ -48,9 +48,12 @@ export interface MoveTarget {
   y: number
 }
 
+export type InteractionPanelPlacement = 'above' | 'below'
+
 export interface DesktopState {
   bounds: WindowBounds
   drawerOpen: boolean
+  panelPlacement: InteractionPanelPlacement
   locked: boolean
   visible: boolean
   alwaysOnTop: boolean
@@ -98,11 +101,19 @@ export type PetAnimation =
 
 export type PetInteraction = 'pet' | 'feed'
 
+export interface PetSessionStatus {
+  sessionId: string
+  animation: PetAnimation
+  bubble: string
+  phase: string
+}
+
 export interface PetSnapshot {
   animation: PetAnimation
   bubble?: string
   phase: string
   sessionActive: boolean
+  sessions?: PetSessionStatus[]
   companion?: DesktopCompanionSettings
   intent?: PetIntent
   affinity: {

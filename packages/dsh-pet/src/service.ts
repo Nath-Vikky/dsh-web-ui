@@ -18,6 +18,7 @@ import type { SettingsNamespace, SettingsPathOp, SettingsProvider } from '@deeps
 import type { AffinityConfig, PetAffinityView, PetInteraction } from './affinity.ts'
 import type { TreatConfig } from './treats.ts'
 import { createInteractionIntent, type PetIntent } from './core/intent.ts'
+import { PET_DESKTOP_SCALE_MAX, PET_DESKTOP_SCALE_MIN } from './contracts/desktop-host.ts'
 import {
   emptyProjectionRuntime,
   isActivityPhase,
@@ -132,8 +133,7 @@ export const DEFAULT_PET_DESKTOP_SETTINGS: PetDesktopSettings = {
   scale: 1,
 }
 
-export const PET_DESKTOP_SCALE_MIN = 0.5
-export const PET_DESKTOP_SCALE_MAX = 2
+export { PET_DESKTOP_SCALE_MAX, PET_DESKTOP_SCALE_MIN } from './contracts/desktop-host.ts'
 
 /** Settings namespace of the pet capability. Spelled here rather than imported: the browser half spells the same value. */
 export const PET_SETTINGS_NAMESPACE = 'pet'

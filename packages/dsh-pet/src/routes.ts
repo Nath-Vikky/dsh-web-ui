@@ -15,7 +15,12 @@ import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import type { PetService, PetSettingsSection } from './service.ts'
+import {
+  PET_DESKTOP_SCALE_MAX,
+  PET_DESKTOP_SCALE_MIN,
+  type PetService,
+  type PetSettingsSection,
+} from './service.ts'
 import type { PetInteraction } from './affinity.ts'
 import {
   authorizePetNativeRequest,
@@ -453,7 +458,8 @@ export function makePetRoutes(deps: { service: PetService, nativeToken?: string 
           const invalidBoolean = booleanKeys.some(key => body[key] !== undefined && typeof body[key] !== 'boolean')
           const scale = body.scale
           const invalidScale = scale !== undefined
-            && (typeof scale !== 'number' || !Number.isFinite(scale) || scale < 0.5 || scale > 2)
+            && (typeof scale !== 'number' || !Number.isFinite(scale)
+              || scale < PET_DESKTOP_SCALE_MIN || scale > PET_DESKTOP_SCALE_MAX)
           if (invalidBoolean || invalidScale) return Promise.reject(new Error('invalid-desktop-settings'))
           const patch: Parameters<PetService['setDesktopSettings']>[0] = {}
           for (const key of booleanKeys) {

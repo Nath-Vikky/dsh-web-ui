@@ -8,6 +8,8 @@ export type { PetDisposable } from './disposable.ts'
 export type { PetRendererKind } from './renderer.ts'
 
 export const PET_DESKTOP_HOST_API_VERSION = 1 as const
+export const PET_DESKTOP_SCALE_MIN = 1
+export const PET_DESKTOP_SCALE_MAX = 2
 
 export interface PetDesktopHostDescriptor {
   apiVersion: typeof PET_DESKTOP_HOST_API_VERSION

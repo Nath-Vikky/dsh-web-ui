@@ -7,12 +7,14 @@ import type {
   PetInteraction,
   PetInteractionResult,
   PetMotion,
+  PetSessionStatus,
   PetSnapshot,
 } from '../shared/desktop-api.ts'
 import {
   createInteractionIntent,
   PET_INTENT_VERSION,
 } from '../../../src/core/intent.ts'
+import { PET_DESKTOP_SCALE_MAX, PET_DESKTOP_SCALE_MIN } from '../../../src/contracts/desktop-host.ts'
 import { DEFAULT_WEB_DSH_URL, normalizeWebDshUrl } from '../shared/web-dsh-url.ts'
 
 export const PET_ORIGIN = DEFAULT_WEB_DSH_URL
@@ -78,7 +80,8 @@ function finiteNumber(value: unknown): value is number {
 function parseCompanionSettings(value: unknown): DesktopCompanionSettings {
   if (!isRecord(value) || typeof value.enabled !== 'boolean' || typeof value.visible !== 'boolean'
     || typeof value.alwaysOnTop !== 'boolean' || typeof value.locked !== 'boolean'
-    || (value.scale !== undefined && (!finiteNumber(value.scale) || value.scale < 0.5 || value.scale > 2))) {
+    || (value.scale !== undefined && (!finiteNumber(value.scale)
+      || value.scale < PET_DESKTOP_SCALE_MIN || value.scale > PET_DESKTOP_SCALE_MAX))) {
     throw new TypeError('invalid desktop companion settings')
   }
   return {
@@ -163,6 +166,21 @@ function parsePetIntent(value: unknown): PetIntent {
   }
 }
 
+function parsePetSessionStatus(value: unknown): PetSessionStatus {
+  if (!isRecord(value) || typeof value.sessionId !== 'string' || value.sessionId === ''
+    || !animations.has(value.animation as PetAnimation)
+    || typeof value.bubble !== 'string' || value.bubble === ''
+    || typeof value.phase !== 'string' || value.phase === '') {
+    throw new TypeError('invalid pet session status')
+  }
+  return {
+    sessionId: value.sessionId,
+    animation: value.animation as PetAnimation,
+    bubble: value.bubble,
+    phase: value.phase,
+  }
+}
+
 export function parsePetSnapshot(value: unknown): PetSnapshot {
   if (!isRecord(value) || !animations.has(value.animation as PetAnimation)
     || typeof value.phase !== 'string' || typeof value.sessionActive !== 'boolean'
@@ -171,6 +189,12 @@ export function parsePetSnapshot(value: unknown): PetSnapshot {
   }
   const affinity = value.affinity
   const treats = value.treats
+  if (value.sessions !== undefined && (!Array.isArray(value.sessions) || value.sessions.length > 12)) {
+    throw new TypeError('invalid pet snapshot')
+  }
+  const sessions = Array.isArray(value.sessions)
+    ? value.sessions.map(parsePetSessionStatus)
+    : undefined
   if (!finiteNumber(affinity.points) || typeof affinity.rank !== 'string'
     || !finiteNumber(affinity.pets) || !finiteNumber(affinity.feeds) || !finiteNumber(affinity.turns)
     || typeof affinity.petCooldown !== 'boolean' || typeof affinity.feedCooldown !== 'boolean'
@@ -183,6 +207,7 @@ export function parsePetSnapshot(value: unknown): PetSnapshot {
     ...(typeof value.bubble === 'string' ? { bubble: value.bubble } : {}),
     phase: value.phase,
     sessionActive: value.sessionActive,
+    ...(sessions === undefined ? {} : { sessions }),
     ...(value.companion === undefined ? {} : { companion: parseCompanionSettings(value.companion) }),
     ...(value.intent === undefined ? {} : { intent: parsePetIntent(value.intent) }),
     affinity: {

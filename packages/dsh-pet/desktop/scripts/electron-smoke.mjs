@@ -20,7 +20,7 @@ await mkdir(localModelDirectory, { recursive: true })
 async function writePetModelFixture(directory, id, displayName) {
   await mkdir(directory)
   await copyFile(
-    join(appRoot, 'src', 'renderer', 'assets', 'spritesheet.webp'),
+    join(appRoot, '..', 'assets', 'whale', 'spritesheet.webp'),
     join(directory, 'spritesheet.webp'),
   )
   await writeFile(join(directory, 'pet.json'), `${JSON.stringify({
@@ -141,6 +141,12 @@ try {
   await page.waitForFunction(() => document.querySelector('.renderer-mount')?.getAttribute('data-render-quality') === 'high')
   const pluginSwitch = page.getByRole('switch', { name: '桌面宠物' })
   assert(await pluginSwitch.isDisabled(), 'plugin switch must not claim success while DSH is disconnected')
+  const scaleOptions = await page.getByRole('combobox', { name: '桌宠大小' })
+    .locator('option').evaluateAll(options => options.map(option => option.value))
+  assert(
+    JSON.stringify(scaleOptions) === JSON.stringify(['1', '1.25', '1.5', '2']),
+    `desktop scale choices must exclude clipped sizes: ${JSON.stringify(scaleOptions)}`,
+  )
   await page.getByRole('combobox', { name: '桌宠大小' }).selectOption('1.5')
   const scaled = await waitForDesktopState(page, state => state.scale === 1.5, 'pet scale increased')
   const scaledViewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
@@ -155,6 +161,50 @@ try {
   })
   await page.getByRole('combobox', { name: '桌宠大小' }).selectOption('1')
   await waitForDesktopState(page, state => state.scale === 1, 'pet scale restored')
+
+  const primaryWorkArea = await electronApp.evaluate(({ screen }) => screen.getPrimaryDisplay().workArea)
+  const topPlacement = await page.evaluate(
+    ({ x, y }) => window.petDesktop.moveTo({ x, y }),
+    { x: initial.bounds.x, y: primaryWorkArea.y },
+  )
+  assert(topPlacement.panelPlacement === 'below', 'controls must open below a pet near the top edge')
+  await page.waitForFunction(() => document.querySelector('.desktop-shell')?.classList.contains('panel-below'))
+  const topPetBounds = await page.locator('.pet-button').boundingBox()
+  assert(topPetBounds !== null && topPetBounds.y <= 10, 'the visual pet must reach the top edge')
+  const bottomPlacement = await page.evaluate(
+    ({ x, y }) => window.petDesktop.moveTo({ x, y }),
+    { x: initial.bounds.x, y: primaryWorkArea.y + primaryWorkArea.height - initial.bounds.height },
+  )
+  assert(bottomPlacement.panelPlacement === 'above', 'controls must open above a pet near the bottom edge')
+  await page.waitForFunction(() => document.querySelector('.desktop-shell')?.classList.contains('panel-above'))
+
+  const bubbleViewportBefore = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+  await electronApp.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send('pet-desktop:pet-state-changed', {
+      connection: 'ready',
+      snapshot: {
+        animation: 'running',
+        bubble: '正在执行任务',
+        phase: 'tool',
+        sessionActive: true,
+        sessions: [
+          { sessionId: 'smoke-session', animation: 'running', bubble: '正在执行任务', phase: 'tool' },
+        ],
+        companion: { enabled: true, visible: true, alwaysOnTop: true, locked: false, scale: 1 },
+        affinity: {
+          points: 8, rank: '初识', pets: 1, feeds: 1, turns: 1,
+          petCooldown: false, feedCooldown: false,
+        },
+        treats: { stocked: 2, max: 20 },
+      },
+    })
+  })
+  await page.getByRole('status', { name: '会话任务状态' }).getByText('正在执行任务').waitFor({ state: 'visible' })
+  const bubbleViewportAfter = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+  assert(
+    JSON.stringify(bubbleViewportAfter) === JSON.stringify(bubbleViewportBefore),
+    'task bubbles must overlay the pet surface without growing the window',
+  )
 
   const petModels = await page.evaluate(() => window.petDesktop.getModels())
   assert(petModels.some(model => model.id === 'builtin:whale'), 'built-in pet model must stay available')
@@ -324,6 +374,9 @@ try {
     hoverSettingsVisible: true,
     rendererCapabilityVisible: true,
     petScaleResizesWindow: true,
+    clippedScaleChoicesRemoved: true,
+    adaptiveInteractionPanel: true,
+    taskStatusBubbleOverlay: true,
     pluginSwitchRequiresDsh: true,
     petModelMenuVisible: true,
     obsoleteDragHintRemoved: true,

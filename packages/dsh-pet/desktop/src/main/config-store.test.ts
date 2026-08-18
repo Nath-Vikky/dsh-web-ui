@@ -55,6 +55,15 @@ describe('desktop config V7 migration', () => {
     expect(migrateDesktopConfig(first)).toEqual(first)
   })
 
+  it('migrates the removed 50% and 75% scales back to 100%', () => {
+    for (const scale of [0.5, 0.75]) {
+      expect(migrateDesktopConfig({
+        ...DEFAULT_DESKTOP_CONFIG,
+        surface: { ...DEFAULT_DESKTOP_CONFIG.surface, scale },
+      }).surface.scale).toBe(1)
+    }
+  })
+
   it.each([1, 2, 3, 4, 5])('keeps legacy version %s readable', (schemaVersion) => {
     const migrated = migrateDesktopConfig({
       schemaVersion,

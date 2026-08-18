@@ -28,6 +28,7 @@ Re-implemented from the pet feature of the Codex desktop app, as an official DSH
 | Web + desktop coexistence | The existing browser pet remains available while an optional managed Electron surface can run beside it; the two presentation switches are independent |
 | Shared economy | Browser and desktop interactions call the same Host-owned `PetService`, so affinity, treats, cooldowns and completed-turn rewards have one writer and one `pet.json` |
 | Managed desktop lifecycle | The desktop pet is off by default; enable it from the Pet settings page and it starts/stops with the current DSH Host, with loopback-only token authentication and SSE updates |
+| Desktop ergonomics | Scale choices are limited to 100%–200% to keep the sprite uncropped; the hover controls open toward the available vertical space, session-status bubbles overlay the sprite without enlarging its window, and quitting from the tray also turns off the persisted desktop switch |
 
 ## Pet contract
 

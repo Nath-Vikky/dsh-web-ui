@@ -1,4 +1,5 @@
 import type { PetRenderQuality } from '../../../src/contracts/renderer.ts'
+import { PET_DESKTOP_SCALE_MAX, PET_DESKTOP_SCALE_MIN } from '../../../src/contracts/desktop-host.ts'
 import type { MoveTarget, PetInteraction } from '../shared/desktop-api.ts'
 import { normalizeWebDshUrl } from '../shared/web-dsh-url.ts'
 
@@ -8,7 +9,8 @@ export function requireBoolean(value: unknown): boolean {
 }
 
 export function parsePetScale(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0.5 || value > 2) {
+  if (typeof value !== 'number' || !Number.isFinite(value)
+    || value < PET_DESKTOP_SCALE_MIN || value > PET_DESKTOP_SCALE_MAX) {
     throw new TypeError('invalid pet scale')
   }
   return Math.round(value * 20) / 20

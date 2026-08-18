@@ -107,6 +107,7 @@ export function createEmbeddedDesktopApi(
     return {
       bounds: { ...native.bounds },
       drawerOpen,
+      panelPlacement: 'above',
       locked,
       visible: native.visible,
       alwaysOnTop: native.alwaysOnTop,

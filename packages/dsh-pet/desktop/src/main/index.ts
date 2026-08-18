@@ -209,7 +209,10 @@ if (shouldStart) {
     windows.create()
     removeIpc = installDesktopIpc(windows, petClient, models)
     petClient.start()
-    tray = new TrayController(windows)
+    tray = new TrayController(
+      windows,
+      () => petClient.setCompanionSettings({ enabled: false }),
+    )
     removeRecoveryEvents = installDesktopRecoveryEvents(app, powerMonitor, {
       onResume: () => {
         petClient.reconnect()

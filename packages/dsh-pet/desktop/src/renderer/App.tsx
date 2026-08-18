@@ -19,6 +19,7 @@ import type {
 import { RendererMount } from './RendererMount.tsx'
 import { pointerDragTarget } from './drag-target.ts'
 import { animationForPetIntent, type SpriteAnimation } from './sprite-animation.ts'
+import { desktopStatusBubbles } from './status-bubbles.ts'
 
 interface DragState {
   pointerId: number
@@ -268,6 +269,7 @@ export function App() {
   const statusText = feedback?.text
     ?? snapshot?.bubble
     ?? (connected ? phaseLabels[snapshot?.phase ?? 'idle'] ?? '状态同步中' : pet.connection === 'connecting' ? '正在连接 DSH Pet' : 'DSH Pet 未连接')
+  const statusBubbles = desktopStatusBubbles(snapshot, feedback)
   const activeIntent = scheduledIntent ?? snapshot?.intent
   const animation = reactionAnimation
     ?? animationForPetIntent(activeIntent, snapshot?.animation ?? 'idle')
@@ -292,7 +294,10 @@ export function App() {
       ].filter(value => value !== undefined).join(' · ') || '基础显示'
 
   return (
-    <main className={`desktop-shell ${desktop?.drawerOpen === true ? 'drawer-open' : ''}`} style={shellStyle}>
+    <main
+      className={`desktop-shell ${desktop?.drawerOpen === true ? 'drawer-open' : ''} ${desktop?.panelPlacement === 'below' ? 'panel-below' : 'panel-above'}`}
+      style={shellStyle}
+    >
       <aside className="drawer" aria-hidden={desktop?.drawerOpen !== true}>
         <div className="drawer-header">
           <div>
@@ -444,8 +449,6 @@ export function App() {
                   disabled={busy !== undefined}
                   onChange={event => updateDesktopSetting(() => window.petDesktop.setScale(Number(event.target.value)))}
                 >
-                  <option value={0.5}>50%</option>
-                  <option value={0.75}>75%</option>
                   <option value={1}>100%</option>
                   <option value={1.25}>125%</option>
                   <option value={1.5}>150%</option>
@@ -548,6 +551,16 @@ export function App() {
             </>
           )}
         </div>
+
+        {statusBubbles.length > 0 && (
+          <div className="task-bubbles" role="status" aria-live="polite" aria-label="会话任务状态">
+            {statusBubbles.map(bubble => (
+              <div key={bubble.id} className={`task-bubble task-bubble-${bubble.kind}`} title={bubble.text}>
+                {bubble.text}
+              </div>
+            ))}
+          </div>
+        )}
 
         <button
           className={`pet-button ${desktop?.locked === true ? 'locked' : ''}`}

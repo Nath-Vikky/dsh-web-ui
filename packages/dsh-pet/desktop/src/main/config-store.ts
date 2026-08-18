@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 import type { PetRenderQuality } from '../../../src/contracts/renderer.ts'
+import { PET_DESKTOP_SCALE_MAX, PET_DESKTOP_SCALE_MIN } from '../../../src/contracts/desktop-host.ts'
 import type { MoveTarget } from '../shared/desktop-api.ts'
 import { DEFAULT_WEB_DSH_URL, normalizeWebDshUrl } from '../shared/web-dsh-url.ts'
 
@@ -100,7 +101,8 @@ function parseNamespacedId(value: unknown, fallback: string): string {
 }
 
 function parseScale(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0.5 && value <= 2
+  return typeof value === 'number' && Number.isFinite(value)
+    && value >= PET_DESKTOP_SCALE_MIN && value <= PET_DESKTOP_SCALE_MAX
     ? Math.round(value * 20) / 20
     : 1
 }

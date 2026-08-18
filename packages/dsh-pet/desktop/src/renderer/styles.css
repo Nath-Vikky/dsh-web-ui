@@ -264,6 +264,12 @@ h1 {
   padding-bottom: 7px;
 }
 
+.panel-below .pet-stage {
+  justify-content: flex-start;
+  padding-top: 7px;
+  padding-bottom: 0;
+}
+
 .interaction-panel {
   position: absolute;
   top: 7px;
@@ -285,6 +291,12 @@ h1 {
 
 .interaction-panel.connected {
   border-color: rgba(125, 211, 252, 0.46);
+}
+
+.panel-below .interaction-panel {
+  top: auto;
+  bottom: 7px;
+  transform: translate(-50%, -5px) scale(0.98);
 }
 
 .pet-stage:hover .interaction-panel,
@@ -632,6 +644,55 @@ h1 {
   color: #94a3b8;
   font-size: 8px;
   white-space: nowrap;
+}
+
+.task-bubbles {
+  position: absolute;
+  right: 3px;
+  bottom: calc(112px * var(--pet-scale, 1));
+  z-index: 2;
+  width: min(128px, 56%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.panel-below .task-bubbles {
+  top: calc(72px * var(--pet-scale, 1));
+  bottom: auto;
+}
+
+.task-bubble {
+  position: relative;
+  max-width: 100%;
+  padding: 5px 9px;
+  overflow: hidden;
+  border: 1px solid rgba(125, 211, 252, 0.5);
+  border-radius: 11px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #e0f2fe;
+  box-shadow: 0 5px 16px rgba(2, 8, 23, 0.28);
+  font-size: 9px;
+  line-height: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-bubble-pet {
+  border-color: rgba(244, 114, 182, 0.72);
+  background: rgba(131, 24, 67, 0.9);
+}
+
+.task-bubble-feed {
+  background: rgba(7, 89, 133, 0.92);
+}
+
+.task-bubble-error {
+  border-color: rgba(248, 113, 113, 0.72);
+  background: rgba(127, 29, 29, 0.92);
+  color: #fee2e2;
 }
 
 .pet-button {

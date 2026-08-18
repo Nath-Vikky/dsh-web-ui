@@ -44,6 +44,14 @@ describe('desktop pet client', () => {
     })
     expect(parsePetSnapshot({
       ...snapshot,
+      sessions: [
+        { sessionId: 'session-1', animation: 'running', bubble: '正在调用工具', phase: 'tool' },
+      ],
+    })).toMatchObject({
+      sessions: [{ sessionId: 'session-1', bubble: '正在调用工具', phase: 'tool' }],
+    })
+    expect(parsePetSnapshot({
+      ...snapshot,
       intent: {
         id: '2:task:tool', createdAt: 100, priority: 30, ttlMs: 12_000,
         expression: 'focused', motion: 'working', speech: '正在运行测试',
@@ -54,6 +62,8 @@ describe('desktop pet client', () => {
     expect(() => parsePetSnapshot({ ...snapshot, intent: { ...intent, motion: 'teleport' } }))
       .toThrow('invalid pet intent')
     expect(() => parsePetSnapshot({ ...snapshot, affinity: { points: Number.NaN } })).toThrow('invalid pet snapshot')
+    expect(() => parsePetSnapshot({ ...snapshot, sessions: [{ sessionId: '', bubble: 1 }] }))
+      .toThrow('invalid pet session status')
   })
 
   it('decodes fragmented SSE data records and ignores heartbeats', () => {

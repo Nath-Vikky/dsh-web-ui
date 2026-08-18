@@ -7,13 +7,14 @@ import {
   type DesktopReturnTarget,
   type DesktopState,
   type DragResult,
+  type InteractionPanelPlacement,
   type MoveTarget,
   type PetBridgeState,
 } from '../shared/desktop-api.ts'
 import { type ConfigStore, type DesktopConfig } from './config-store.ts'
 import { createDragSession, cursorChanged, dragTargetAt, type DragSession } from './drag-session.ts'
 import { clampWindowPosition, resizedContentBounds } from './window-bounds.ts'
-import { petWindowContentSize } from './window-layout.ts'
+import { interactionPanelPlacement, petWindowContentSize } from './window-layout.ts'
 import { showPetWindow } from './window-visibility.ts'
 import { RecoveryBudget } from './recovery-budget.ts'
 const EDGE_MARGIN = 24
@@ -24,6 +25,7 @@ type StateListener = (state: DesktopState) => void
 export class WindowManager {
   private window: BrowserWindow | undefined
   private drawerOpen = false
+  private panelPlacement: InteractionPanelPlacement = 'above'
   private quitting = false
   private saveTimer: NodeJS.Timeout | undefined
   private dragTimer: NodeJS.Timeout | undefined
@@ -50,6 +52,11 @@ export class WindowManager {
   create(): BrowserWindow {
     const initialPosition = this.initialPosition()
     const initialSize = petWindowContentSize(this.config.surface.scale, false)
+    const initialBounds = { ...initialPosition, ...initialSize }
+    this.panelPlacement = interactionPanelPlacement(
+      initialBounds,
+      screen.getDisplayMatching(initialBounds).workArea,
+    )
     const window = new BrowserWindow({
       x: initialPosition.x,
       y: initialPosition.y,
@@ -94,6 +101,7 @@ export class WindowManager {
     window.on('hide', () => this.emitState())
     window.on('moved', () => {
       if (this.dragSession === undefined) this.schedulePositionSave()
+      if (this.refreshPanelPlacement()) this.emitState()
     })
     window.on('close', event => {
       if (this.quitting) return
@@ -133,6 +141,7 @@ export class WindowManager {
     return {
       bounds,
       drawerOpen: this.drawerOpen,
+      panelPlacement: this.panelPlacement,
       locked: this.config.surface.locked,
       visible: this.window?.isVisible() === true,
       alwaysOnTop: this.config.surface.alwaysOnTop,
@@ -167,6 +176,7 @@ export class WindowManager {
     )
     this.drawerOpen = open
     window.setContentBounds(nextContent)
+    this.refreshPanelPlacement()
     this.emitState()
     return this.state()
   }
@@ -275,6 +285,7 @@ export class WindowManager {
     const bounds = window.getBounds()
     const position = clampWindowPosition(target, bounds, this.workAreas())
     window.setPosition(position.x, position.y)
+    this.refreshPanelPlacement()
     this.emitState()
     return this.state()
   }
@@ -314,6 +325,7 @@ export class WindowManager {
     const moved = this.dragSession?.moved === true
     this.cancelDrag()
     if (moved) this.schedulePositionSave()
+    this.refreshPanelPlacement()
     this.emitState()
     return { state: this.state(), moved }
   }
@@ -417,8 +429,11 @@ export class WindowManager {
     if (window === undefined) return
     const bounds = window.getBounds()
     const position = clampWindowPosition(bounds, bounds, this.workAreas())
+    const placementChanged = this.refreshPanelPlacement({ ...bounds, ...position })
     if (position.x !== bounds.x || position.y !== bounds.y) {
       window.setPosition(position.x, position.y)
+      this.emitState()
+    } else if (placementChanged) {
       this.emitState()
     }
   }
@@ -466,6 +481,15 @@ export class WindowManager {
       this.workAreas(),
     )
     window.setContentBounds(next)
+    this.refreshPanelPlacement()
+  }
+
+  private refreshPanelPlacement(bounds = this.window?.getBounds()): boolean {
+    if (bounds === undefined) return false
+    const next = interactionPanelPlacement(bounds, screen.getDisplayMatching(bounds).workArea)
+    if (next === this.panelPlacement) return false
+    this.panelPlacement = next
+    return true
   }
 
   private persistConfig(): void {

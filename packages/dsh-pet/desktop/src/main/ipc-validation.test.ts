@@ -13,8 +13,9 @@ import {
 
 describe('desktop IPC validation', () => {
   it('accepts bounded pet scale values and normalizes their precision', () => {
+    expect(parsePetScale(1)).toBe(1)
     expect(parsePetScale(1.234)).toBe(1.25)
-    expect(() => parsePetScale(0.49)).toThrow('invalid pet scale')
+    expect(() => parsePetScale(0.75)).toThrow('invalid pet scale')
     expect(() => parsePetScale(2.01)).toThrow('invalid pet scale')
     expect(() => parsePetScale('1')).toThrow('invalid pet scale')
   })
