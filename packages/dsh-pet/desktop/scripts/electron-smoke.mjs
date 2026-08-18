@@ -118,6 +118,24 @@ try {
   const initialViewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
   assert(initialViewport.width >= 224 && initialViewport.width <= 232, `desktop content should start collapsed: ${JSON.stringify(initialViewport)}`)
   assert(initialViewport.height >= 300 && initialViewport.height <= 308, `desktop content should expose the interaction panel: ${JSON.stringify(initialViewport)}`)
+  const forcedPostShowDrift = await electronApp.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    if (window === undefined) throw new Error('missing desktop pet window')
+    const content = window.getContentBounds()
+    window.setContentBounds({ ...content, width: content.width + 304 })
+    return window.getBounds()
+  })
+  assert(
+    forcedPostShowDrift.width >= initial.bounds.width + 300,
+    `test setup must reproduce a stale drawer-sized window: ${JSON.stringify(forcedPostShowDrift)}`,
+  )
+  const selfCalibratedDrag = await page.evaluate(() => window.petDesktop.beginDrag())
+  await page.evaluate(() => window.petDesktop.endDrag())
+  await page.waitForFunction(() => innerWidth >= 224 && innerWidth <= 232)
+  assert(
+    Math.abs(selfCalibratedDrag.bounds.width - initial.bounds.width) <= 1,
+    `the first drag must self-calibrate post-show bounds drift: ${JSON.stringify({ initial: initial.bounds, forcedPostShowDrift, selfCalibrated: selfCalibratedDrag.bounds })}`,
+  )
   const primaryWorkArea = await electronApp.evaluate(({ screen }) => screen.getPrimaryDisplay().workArea)
   const firstEdgePlacement = await page.evaluate(
     ({ x, y }) => window.petDesktop.moveTo({ x, y }),
@@ -399,6 +417,7 @@ try {
     interactionPanelVisible: true,
     interactionPanelHoverOnly: true,
     dragSessionStable: true,
+    firstDragSelfCalibrates: true,
     firstEdgeBoundaryStable: true,
     drawerAnchoredAfterDrag: true,
     drawerDoesNotSwitchAnimation: true,

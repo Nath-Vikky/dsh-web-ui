@@ -25,7 +25,6 @@ interface DragState {
   pointerId: number
   begin: Promise<DesktopState>
   startScreen: { x: number; y: number }
-  startBounds: DesktopState['bounds']
 }
 
 interface Feedback {
@@ -151,7 +150,6 @@ export function App() {
       pointerId: event.pointerId,
       begin: window.petDesktop.beginDrag(),
       startScreen: { x: event.screenX, y: event.screenY },
-      startBounds: { ...desktop.bounds },
     }
   }
 
@@ -162,10 +160,13 @@ export function App() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
-    const finalTarget = cancelled
-      ? undefined
-      : pointerDragTarget(current.startScreen, { x: event.screenX, y: event.screenY }, current.startBounds)
-    void current.begin.then(() => window.petDesktop.endDrag()).then((result) => {
+    const endScreen = { x: event.screenX, y: event.screenY }
+    void current.begin.then((startState) => {
+      const finalTarget = cancelled
+        ? undefined
+        : pointerDragTarget(current.startScreen, endScreen, startState.bounds)
+      return window.petDesktop.endDrag().then(result => ({ finalTarget, result }))
+    }).then(({ finalTarget, result }) => {
       if (finalTarget !== undefined) {
         return window.petDesktop.moveTo(finalTarget).then(setDesktop)
       }

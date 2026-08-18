@@ -98,10 +98,16 @@ export class WindowManager {
       // Windows can add transparent non-client pixels while constructing a
       // frameless window. Normalize after native creation has settled; drawer
       // resizing would otherwise be the first operation to correct the size.
-      this.resizeForCurrentLayout()
+      this.reconcileCurrentLayout()
       if (this.config.surface.visible) showPetWindow(window)
     })
-    window.on('show', () => this.emitState())
+    window.on('show', () => {
+      // Showing a transparent window can apply another platform/DPI bounds
+      // adjustment after ready-to-show. Recheck rather than trusting one
+      // lifecycle point to establish the layout invariant.
+      this.reconcileCurrentLayout()
+      this.emitState()
+    })
     window.on('hide', () => this.emitState())
     window.on('moved', () => {
       if (this.dragSession === undefined) this.schedulePositionSave()
@@ -165,22 +171,10 @@ export class WindowManager {
   }
 
   setDrawerOpen(open: boolean): DesktopState {
-    const window = this.requiredWindow()
     if (this.drawerOpen === open) return this.state()
     this.cancelDrag()
-    const currentOuter = window.getBounds()
-    const currentContent = window.getContentBounds()
-    const contentSize = petWindowContentSize(this.config.surface.scale, open)
-    const nextContent = resizedContentBounds(
-      currentOuter,
-      currentContent,
-      contentSize.width,
-      contentSize.height,
-      this.workAreas(),
-    )
     this.drawerOpen = open
-    window.setContentBounds(nextContent)
-    this.refreshPanelPlacement()
+    this.reconcileCurrentLayout()
     this.emitState()
     return this.state()
   }
@@ -210,7 +204,7 @@ export class WindowManager {
     if (this.config.surface.scale === scale) return this.state()
     this.cancelDrag()
     this.config = { ...this.config, surface: { ...this.config.surface, scale } }
-    this.resizeForCurrentLayout()
+    this.reconcileCurrentLayout()
     this.persistConfig()
     this.onCompanionSettingsChange({ scale })
     this.emitState()
@@ -236,7 +230,7 @@ export class WindowManager {
     this.config = { ...this.config, surface: { ...this.config.surface, ...settings } }
     this.window?.setMovable(!settings.locked)
     this.window?.setAlwaysOnTop(settings.alwaysOnTop)
-    this.resizeForCurrentLayout()
+    this.reconcileCurrentLayout()
     if (settings.visible && this.window !== undefined) showPetWindow(this.window)
     else this.window?.hide()
     this.persistConfig()
@@ -285,6 +279,7 @@ export class WindowManager {
 
   moveTo(target: MoveTarget): DesktopState {
     if (this.config.surface.locked) return this.state()
+    this.reconcileCurrentLayout()
     const window = this.requiredWindow()
     const bounds = window.getBounds()
     const position = clampWindowPosition(target, bounds, this.workAreas())
@@ -300,10 +295,12 @@ export class WindowManager {
       return this.state()
     }
     this.cancelDrag()
+    const layoutChanged = this.reconcileCurrentLayout()
     const window = this.requiredWindow()
     this.dragSession = createDragSession(screen.getCursorScreenPoint(), window.getBounds())
     this.dragTimer = setInterval(() => this.updateDrag(), DRAG_POLL_MS)
     this.dragTimer.unref?.()
+    if (layoutChanged) this.emitState()
     return this.state()
   }
 
@@ -435,13 +432,14 @@ export class WindowManager {
   private readonly ensureVisible = (): void => {
     const window = this.window
     if (window === undefined) return
+    const layoutChanged = this.reconcileCurrentLayout()
     const bounds = window.getBounds()
     const position = clampWindowPosition(bounds, bounds, this.workAreas())
     const placementChanged = this.refreshPanelPlacement({ ...bounds, ...position })
     if (position.x !== bounds.x || position.y !== bounds.y) {
       window.setPosition(position.x, position.y)
       this.emitState()
-    } else if (placementChanged) {
+    } else if (layoutChanged || placementChanged) {
       this.emitState()
     }
   }
@@ -477,19 +475,26 @@ export class WindowManager {
     return this.state()
   }
 
-  private resizeForCurrentLayout(): void {
+  /** Idempotently restore the native window to the logical drawer/scale layout. */
+  private reconcileCurrentLayout(): boolean {
     const window = this.window
-    if (window === undefined) return
+    if (window === undefined) return false
     const contentSize = petWindowContentSize(this.config.surface.scale, this.drawerOpen)
-    const next = resizedContentBounds(
-      window.getBounds(),
-      window.getContentBounds(),
-      contentSize.width,
-      contentSize.height,
-      this.workAreas(),
-    )
-    window.setContentBounds(next)
-    this.refreshPanelPlacement()
+    const currentContent = window.getContentBounds()
+    const sizeChanged = currentContent.width !== contentSize.width
+      || currentContent.height !== contentSize.height
+    if (sizeChanged) {
+      const next = resizedContentBounds(
+        window.getBounds(),
+        currentContent,
+        contentSize.width,
+        contentSize.height,
+        this.workAreas(),
+      )
+      window.setContentBounds(next)
+    }
+    const placementChanged = this.refreshPanelPlacement()
+    return sizeChanged || placementChanged
   }
 
   private refreshPanelPlacement(bounds = this.window?.getBounds()): boolean {
