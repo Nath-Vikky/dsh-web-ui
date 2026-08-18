@@ -1,7 +1,8 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, type Dirent } from 'node:fs'
 import {
   chmod,
   mkdir,
+  readdir,
   readFile,
   rename,
   rm,
@@ -9,8 +10,8 @@ import {
 } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
+import extractZip from '@electron-internal/extract-zip'
 import { downloadArtifact } from '@electron/get'
-import extractZip from 'extract-zip'
 
 import {
   ELECTRON_RUNTIME_VERSION,
@@ -188,6 +189,8 @@ async function defaultDownload(request: ElectronRuntimeDownloadRequest): Promise
 }
 
 async function defaultExtract(archive: string, destination: string): Promise<void> {
+  // Electron uses this native extractor for Node 24.16+; the legacy
+  // extract-zip/yauzl stream can leave its extraction promise unsettled.
   await extractZip(archive, { dir: destination })
 }
 
@@ -316,6 +319,7 @@ export class ElectronRuntimeManager {
       await mkdir(this.options.root, { recursive: true })
       await this.persistPreferences()
       lock = await this.acquireInstallLock()
+      await this.cleanupOrphanedInstalls()
       const artifact = electronRuntimeArtifact(this.platform, this.arch)
       if (artifact === undefined) throw new Error('runtime-unsupported')
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -402,6 +406,25 @@ export class ElectronRuntimeManager {
 
   private lockFile(): string {
     return join(this.options.root, 'install.lock')
+  }
+
+  private async cleanupOrphanedInstalls(): Promise<void> {
+    const destination = this.installDirectory()
+    const parent = dirname(destination)
+    const prefix = `${basename(destination)}.partial-`
+    let entries: Dirent[]
+    try {
+      entries = await readdir(parent, { withFileTypes: true })
+    } catch (error) {
+      if (isRecord(error) && error.code === 'ENOENT') return
+      throw error
+    }
+    for (const entry of entries) {
+      if (!entry.name.startsWith(prefix)) continue
+      const orphan = join(parent, entry.name)
+      if (!safeChild(this.options.root, orphan)) continue
+      await rm(orphan, { recursive: true, force: true }).catch(() => undefined)
+    }
   }
 
   private async acquireInstallLock(): Promise<RuntimeInstallLock> {

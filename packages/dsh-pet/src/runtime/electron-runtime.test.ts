@@ -13,6 +13,12 @@ import {
 import { ELECTRON_RUNTIME_VERSION } from './electron-runtime-manifest.ts'
 
 const roots: string[] = []
+const nativeExtractorFixture = [
+  'UEsDBBQAAAAIAKZcEl2oYVZPCQAAAAcAAAAHAAAAdmVyc2lvbjMx1jPRM+ACAFBLAwQUAAAACACmXBJd7kDl',
+  'BQkAAAAHAAAADAAAAGVsZWN0cm9uLmV4ZUvLrCgpLUoFAFBLAQIUABQAAAAIAKZcEl2oYVZPCQAAAAcAAAAH',
+  'AAAAAAAAAAAAAAAAAAAAAAB2ZXJzaW9uUEsBAhQAFAAAAAgAplwSXe5A5QUJAAAABwAAAAwAAAAAAAAAAAAA',
+  'AAAALgAAAGVsZWN0cm9uLmV4ZVBLBQYAAAAAAgACAG8AAABhAAAAAAA=',
+].join('')
 
 async function temporaryRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-pet-electron-'))
@@ -63,6 +69,28 @@ describe('ElectronRuntimeManager', () => {
     expect(manager.executablePath()).toMatch(/electron\.exe$/)
     expect(existsSync(manager.executablePath()!)).toBe(true)
     expect(JSON.parse(await readFile(join(root, 'settings.json'), 'utf8'))).toMatchObject({ source: 'npmmirror' })
+  })
+
+  it('extracts a real runtime ZIP through the packaged native extractor', async () => {
+    const root = await temporaryRoot()
+    const archive = join(root, 'runtime-fixture.zip')
+    const orphan = join(root, 'runtime', `v${ELECTRON_RUNTIME_VERSION}`, 'win32-x64.partial-interrupted')
+    await writeFile(archive, Buffer.from(nativeExtractorFixture, 'base64'))
+    await mkdir(orphan, { recursive: true })
+    await writeFile(join(orphan, 'electron.exe'), 'incomplete', 'utf8')
+    const manager = new ElectronRuntimeManager({
+      root,
+      platform: 'win32',
+      arch: 'x64',
+      downloadArtifact: async () => archive,
+    })
+
+    manager.startInstall({ source: 'official' })
+    await manager.settled()
+
+    expect(manager.state()).toMatchObject({ phase: 'ready', installed: true, managed: true })
+    expect(await readFile(manager.executablePath()!, 'utf8')).toBe('fixture')
+    expect(existsSync(orphan)).toBe(false)
   })
 
   it('cleans a cancelled partial install and returns to not installed', async () => {
@@ -204,5 +232,7 @@ describe('published runtime dependency policy', () => {
     expect(packageJson.dependencies?.electron).toBeUndefined()
     expect(packageJson.optionalDependencies?.electron).toBeUndefined()
     expect(packageJson.devDependencies?.electron).toBe(`^${ELECTRON_RUNTIME_VERSION}`)
+    expect(packageJson.dependencies?.['@electron-internal/extract-zip']).toBe('1.0.5')
+    expect(packageJson.dependencies?.['extract-zip']).toBeUndefined()
   })
 })

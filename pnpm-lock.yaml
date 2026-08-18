@@ -149,7 +149,7 @@ importers:
         version: 5.7.3
       vitest:
         specifier: ^4.1.1
-        version: 4.1.10(@types/node@22.20.1)(jsdom@26.1.0)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@26.1.0)
 
   packages/dsh-git-graph:
     devDependencies:
@@ -224,7 +224,7 @@ importers:
         version: 6.1.1(typescript@6.0.3)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/dsh-liangshen:
     dependencies:
@@ -340,19 +340,19 @@ importers:
         version: 6.1.1(typescript@5.9.3)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.1
-        version: 4.1.10(@types/node@22.20.1)(jsdom@26.1.0)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@26.1.0)
 
   packages/dsh-pet:
     dependencies:
+      '@electron-internal/extract-zip':
+        specifier: 1.0.5
+        version: 1.0.5
       '@electron/get':
         specifier: ^5.1.0
         version: 5.1.0
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
-      extract-zip:
-        specifier: ^2.0.1
-        version: 2.0.1
       schemastery:
         specifier: ^3.18.0
         version: 3.18.0
@@ -434,7 +434,7 @@ importers:
         version: 6.1.1(typescript@6.0.3)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/dsh-remote-web-ui:
     dependencies:
@@ -528,7 +528,7 @@ importers:
         version: 6.1.1(typescript@6.0.3)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/dsh-skins:
     dependencies:
@@ -880,7 +880,7 @@ importers:
         version: 5.7.3
       vitest:
         specifier: ^4.1.1
-        version: 4.1.10(@types/node@22.20.1)(jsdom@26.1.0)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@26.1.0)
 
   packages/skins/blue-fantasy:
     devDependencies:
@@ -901,7 +901,7 @@ importers:
         version: 6.1.1(typescript@5.9.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/skins/dragon-heir:
     devDependencies:
@@ -922,7 +922,7 @@ importers:
         version: 6.1.1(typescript@5.9.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/skins/harbor:
     devDependencies:
@@ -943,7 +943,7 @@ importers:
         version: 6.1.1(typescript@5.9.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/skins/maid-atelier:
     devDependencies:
@@ -970,7 +970,7 @@ importers:
         version: 6.1.1(typescript@5.7.3)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/skins/matrix:
     devDependencies:
@@ -991,7 +991,7 @@ importers:
         version: 6.1.1(typescript@5.9.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/skins/miku:
     devDependencies:
@@ -1012,7 +1012,7 @@ importers:
         version: 6.1.1(typescript@5.9.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/skins/minecraft:
     devDependencies:
@@ -1033,7 +1033,7 @@ importers:
         version: 6.1.1(typescript@5.9.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/skins/skin-center:
     dependencies:
@@ -1082,7 +1082,7 @@ importers:
         version: 0.22.2(typescript@6.0.3)
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/skins/trading:
     devDependencies:
@@ -1106,7 +1106,7 @@ importers:
         version: 6.1.1(typescript@5.9.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/skins/whale-mom:
     devDependencies:
@@ -1127,7 +1127,7 @@ importers:
         version: 6.1.1(typescript@5.9.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/skins/whale-song:
     devDependencies:
@@ -1148,7 +1148,7 @@ importers:
         version: 6.1.1(typescript@5.9.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   packages/skins/xp:
     devDependencies:
@@ -1169,7 +1169,7 @@ importers:
         version: 6.1.1(typescript@5.9.3)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
   shared:
     devDependencies:
@@ -1199,7 +1199,7 @@ importers:
         version: 6.1.1(typescript@6.0.3)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
       vitest:
         specifier: ^4.1.8
-        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
+        version: 4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1)
 
 packages:
 
@@ -2942,9 +2942,6 @@ packages:
   '@types/ws@8.18.1':
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
-  '@types/yauzl@2.10.3':
-    resolution: {integrity: sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q==}
-
   '@ungap/structured-clone@1.3.3':
     resolution: {integrity: sha512-60YRaenCQcVjYEKOcG824+DRGGIQ3VKErcBoAEDJZz5bKIs2ZG+X/H9Nk+Q6EVkwJk5QNApxbrc5QtBSwtrXAg==}
 
@@ -3085,9 +3082,6 @@ packages:
     resolution: {integrity: sha512-V2NpofLblG64mfOtSgDhOJESZEGogzDMBv/q+W6oc4LXWP/q75eOXoOaaOu1EOadB9U4Bwx/e0yzbvwKH8zalA==}
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
-
-  buffer-crc32@0.2.13:
-    resolution: {integrity: sha512-VO9Ht/+p3SN7SKWqcrgEzjGbRSJYTx+Q1pTQC0wrWqHx0vpJraQ6GtHx8tvcg1rlK1byhU5gccxgOgj7B0TDkQ==}
 
   buildcheck@0.0.7:
     resolution: {integrity: sha512-lHblz4ahamxpTmnsk+MNTRWsjYKv965MwOrSJyeD588rR3Jcu7swE+0wN5F+PbL5cjgu/9ObkhfzEPuofEMwLA==}
@@ -3459,9 +3453,6 @@ packages:
     resolution: {integrity: sha512-YGRs8knHhKHVShLkFET/rWAU8kmHbOV5LwN938RHI0pljAJ1Gf6SzXsSmRaEzcXTtOOmVqJ5+WtQPL5uigY50Q==}
     engines: {node: '>=14'}
 
-  end-of-stream@1.4.5:
-    resolution: {integrity: sha512-ooEGc6HP26xXq/N+GCGOT0JKCLDGrq2bQUZrQ7gyrJiZANJ/8YDTxTpQBXGMn+WbIQXNVpyWymm7KYVICQnyOg==}
-
   entities@6.0.1:
     resolution: {integrity: sha512-aN97NXWF6AWBTahfVOIrB/NShkzi5H7F9r1s9mD3cDj4Ko5f2qhhVoYMibXF7GlLveb/D2ioWay8lxI97Ven3g==}
     engines: {node: '>=0.12'}
@@ -3524,14 +3515,6 @@ packages:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
 
-  extract-zip@2.0.1:
-    resolution: {integrity: sha512-GDhU9ntwuKyGXdZBUgTIe+vXnWj0fppUEtMDL0+idd5Sta8TGpHssn/eusA9mrPr9qNDym6SxAYZjNvCn/9RBg==}
-    engines: {node: '>= 10.17.0'}
-    hasBin: true
-
-  fd-slicer@1.1.0:
-    resolution: {integrity: sha512-cE1qsB/VwyQozZ+q1dGxR8LBYNZeofhEdUNGSMbQD3Gw2lAzX9Zb3uIU6Ebc/Fmyjo9AWWfnn0AUCHqtevs/8g==}
-
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
     engines: {node: '>=12.0.0'}
@@ -3572,10 +3555,6 @@ packages:
   get-proto@1.0.1:
     resolution: {integrity: sha512-sTSfBjoXBp89JvIKIefqw7U2CCebsc74kiY6awiGogKtoSGbgjYE/G/+l9sF3MWFPNc9IcoOC4ODfKHfxFmp0g==}
     engines: {node: '>= 0.4'}
-
-  get-stream@5.2.0:
-    resolution: {integrity: sha512-nBF+F1rAZVCu/p7rjzgA+Yb4lfYXrpl7a6VmJrU8wF9I1CKvP/QwPNZHnOlwbTkY6dvtFIzFMSyQXbLoTQPRpA==}
-    engines: {node: '>=8'}
 
   get-tsconfig@5.0.0-beta.5:
     resolution: {integrity: sha512-/6gFNr0N04nob252sTQxyFLi3eKFRqIg1I87YcqAMT1i6SQrSF6KujUEQrtrjMV0H/eejTCltLdDSTEMzHbnsQ==}
@@ -4073,9 +4052,6 @@ packages:
     resolution: {integrity: sha512-4a+OsYv9UktOJKE+l1A4OufDgdRF9PifWj+tJnHURo/P+WOxpG4GzUFL9qCalmWauao6ogiG+QvnCovwPoyAWA==}
     engines: {node: '>=12.20.0'}
 
-  once@1.4.0:
-    resolution: {integrity: sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==}
-
   oniguruma-parser@0.12.2:
     resolution: {integrity: sha512-6HVa5oIrgMC6aA6WF6XyyqbhRPJrKR02L20+2+zpDtO5QAzGHAUGw5TKQvwi5vctNnRHkJYmjAhRVQF2EKdTQw==}
 
@@ -4100,9 +4076,6 @@ packages:
   pathval@2.0.1:
     resolution: {integrity: sha512-//nshmD55c46FuFw26xV/xFAaB5HF9Xdap7HJBBnrKdAd6/GxDBaNA1870O79+9ueg61cZLSVc+OaFlfmObYVQ==}
     engines: {node: '>= 14.16'}
-
-  pend@1.2.0:
-    resolution: {integrity: sha512-F3asv42UuXchdzt+xXqfW1OGlVBe+mxa2mqI0pg5yAHZPvFmY3Y6drSf/GQ1A86WgWEN9Kzh/WrgKa6iGcHXLg==}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -4139,9 +4112,6 @@ packages:
 
   property-information@7.2.0:
     resolution: {integrity: sha512-IAtzIB6sUiWaJYrX9smp3V46pBGbBeLFRGdh25kg1334VcBlD8HzhPeNIWQH9zhGmo2itIe25EHt9dQP7G5hmg==}
-
-  pump@3.0.4:
-    resolution: {integrity: sha512-VS7sjc6KR7e1ukRFhQSY5LM2uBWAUPiOPa/A3mkKmiMwSmRFUITt0xuj+/lesgnCv+dPIEYlkzrcyXgquIHMcA==}
 
   punycode@2.3.1:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
@@ -4623,7 +4593,6 @@ packages:
       '@vitest/ui': 4.1.10
       happy-dom: '*'
       jsdom: '*'
-      vite: ^6.0.0 || ^7.0.0 || ^8.0.0
     peerDependenciesMeta:
       '@edge-runtime/vm':
         optional: true
@@ -4688,9 +4657,6 @@ packages:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
 
-  wrappy@1.0.2:
-    resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
-
   ws@8.21.3:
     resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
     engines: {node: '>=10.0.0'}
@@ -4712,9 +4678,6 @@ packages:
 
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
-
-  yauzl@2.10.0:
-    resolution: {integrity: sha512-p4a9I6X6nu6IhoGmBqAcbJy1mlC4j27vEPZX9F4L4/vZT3Lyq1VkFHw/V/PUcB9Buo+DG3iHkT0x3Qya58zc3g==}
 
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
@@ -6433,11 +6396,6 @@ snapshots:
     dependencies:
       '@types/node': 22.20.1
 
-  '@types/yauzl@2.10.3':
-    dependencies:
-      '@types/node': 22.20.1
-    optional: true
-
   '@ungap/structured-clone@1.3.3': {}
 
   '@upsetjs/venn.js@2.0.0':
@@ -6490,14 +6448,6 @@ snapshots:
       magic-string: 0.30.21
     optionalDependencies:
       vite: 8.2.1(@types/node@22.20.1)(esbuild@0.28.2)
-
-  '@vitest/mocker@4.1.10(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))':
-    dependencies:
-      '@vitest/spy': 4.1.10
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 8.2.1(@types/node@24.13.3)(esbuild@0.28.2)
 
   '@vitest/pretty-format@3.2.7':
     dependencies:
@@ -6602,8 +6552,6 @@ snapshots:
       electron-to-chromium: 1.5.407
       node-releases: 2.0.53
       update-browserslist-db: 1.3.1(browserslist@4.28.8)
-
-  buffer-crc32@0.2.13: {}
 
   buildcheck@0.0.7:
     optional: true
@@ -6997,10 +6945,6 @@ snapshots:
 
   empathic@2.0.1: {}
 
-  end-of-stream@1.4.5:
-    dependencies:
-      once: 1.4.0
-
   entities@6.0.1: {}
 
   entities@8.0.0: {}
@@ -7096,20 +7040,6 @@ snapshots:
 
   expect-type@1.4.0: {}
 
-  extract-zip@2.0.1:
-    dependencies:
-      debug: 4.4.3
-      get-stream: 5.2.0
-      yauzl: 2.10.0
-    optionalDependencies:
-      '@types/yauzl': 2.10.3
-    transitivePeerDependencies:
-      - supports-color
-
-  fd-slicer@1.1.0:
-    dependencies:
-      pend: 1.2.0
-
   fdir@6.5.0(picomatch@4.0.5):
     optionalDependencies:
       picomatch: 4.0.5
@@ -7151,10 +7081,6 @@ snapshots:
     dependencies:
       dunder-proto: 1.0.1
       es-object-atoms: 1.1.2
-
-  get-stream@5.2.0:
-    dependencies:
-      pump: 3.0.4
 
   get-tsconfig@5.0.0-beta.5:
     dependencies:
@@ -7849,10 +7775,6 @@ snapshots:
 
   obug@2.1.4: {}
 
-  once@1.4.0:
-    dependencies:
-      wrappy: 1.0.2
-
   oniguruma-parser@0.12.2: {}
 
   oniguruma-to-es@4.3.6:
@@ -7876,8 +7798,6 @@ snapshots:
   pathe@2.0.3: {}
 
   pathval@2.0.1: {}
-
-  pend@1.2.0: {}
 
   picocolors@1.1.1: {}
 
@@ -7913,11 +7833,6 @@ snapshots:
   progress@2.0.3: {}
 
   property-information@7.2.0: {}
-
-  pump@3.0.4:
-    dependencies:
-      end-of-stream: 1.4.5
-      once: 1.4.0
 
   punycode@2.3.1: {}
 
@@ -8595,7 +8510,7 @@ snapshots:
       - tsx
       - yaml
 
-  vitest@4.1.10(@types/node@22.20.1)(jsdom@26.1.0)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2)):
+  vitest@4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@26.1.0):
     dependencies:
       '@vitest/expect': 4.1.10
       '@vitest/mocker': 4.1.10(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
@@ -8621,9 +8536,20 @@ snapshots:
       '@types/node': 22.20.1
       jsdom: 26.1.0
     transitivePeerDependencies:
+      - '@vitejs/devtools'
+      - esbuild
+      - jiti
+      - less
       - msw
+      - sass
+      - sass-embedded
+      - stylus
+      - sugarss
+      - terser
+      - tsx
+      - yaml
 
-  vitest@4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2)):
+  vitest@4.1.10(@types/node@22.20.1)(esbuild@0.28.2)(jsdom@29.1.1):
     dependencies:
       '@vitest/expect': 4.1.10
       '@vitest/mocker': 4.1.10(vite@8.2.1(@types/node@22.20.1)(esbuild@0.28.2))
@@ -8649,35 +8575,18 @@ snapshots:
       '@types/node': 22.20.1
       jsdom: 29.1.1
     transitivePeerDependencies:
+      - '@vitejs/devtools'
+      - esbuild
+      - jiti
+      - less
       - msw
-
-  vitest@4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)):
-    dependencies:
-      '@vitest/expect': 4.1.10
-      '@vitest/mocker': 4.1.10(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2))
-      '@vitest/pretty-format': 4.1.10
-      '@vitest/runner': 4.1.10
-      '@vitest/snapshot': 4.1.10
-      '@vitest/spy': 4.1.10
-      '@vitest/utils': 4.1.10
-      es-module-lexer: 2.3.1
-      expect-type: 1.4.0
-      magic-string: 0.30.21
-      obug: 2.1.4
-      pathe: 2.0.3
-      picomatch: 4.0.5
-      std-env: 4.2.0
-      tinybench: 2.9.0
-      tinyexec: 1.3.0
-      tinyglobby: 0.2.17
-      tinyrainbow: 3.1.1
-      vite: 8.2.1(@types/node@24.13.3)(esbuild@0.28.2)
-      why-is-node-running: 2.3.0
-    optionalDependencies:
-      '@types/node': 22.20.1
-      jsdom: 29.1.1
-    transitivePeerDependencies:
-      - msw
+      - sass
+      - sass-embedded
+      - stylus
+      - sugarss
+      - terser
+      - tsx
+      - yaml
 
   w3c-keyname@2.2.8: {}
 
@@ -8715,8 +8624,6 @@ snapshots:
       siginfo: 2.0.0
       stackback: 0.0.2
 
-  wrappy@1.0.2: {}
-
   ws@8.21.3: {}
 
   xml-name-validator@5.0.0: {}
@@ -8724,11 +8631,6 @@ snapshots:
   xmlchars@2.2.0: {}
 
   yallist@3.1.1: {}
-
-  yauzl@2.10.0:
-    dependencies:
-      buffer-crc32: 0.2.13
-      fd-slicer: 1.1.0
 
   zod@4.4.3: {}
 
