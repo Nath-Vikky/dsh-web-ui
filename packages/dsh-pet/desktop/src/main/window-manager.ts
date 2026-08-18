@@ -95,6 +95,10 @@ export class WindowManager {
       if (!this.quitting && details.reason !== 'clean-exit') this.recoverRenderer()
     })
     window.on('ready-to-show', () => {
+      // Windows can add transparent non-client pixels while constructing a
+      // frameless window. Normalize after native creation has settled; drawer
+      // resizing would otherwise be the first operation to correct the size.
+      this.resizeForCurrentLayout()
       if (this.config.surface.visible) showPetWindow(window)
     })
     window.on('show', () => this.emitState())
@@ -315,9 +319,13 @@ export class WindowManager {
     session.moved = true
     const bounds = window.getBounds()
     const position = clampWindowPosition(update.target, bounds, this.workAreas())
+    const placementChanged = this.refreshPanelPlacement({ ...bounds, ...position })
     if (position.x !== bounds.x || position.y !== bounds.y) {
       window.setPosition(position.x, position.y)
     }
+    // Do not wait for the platform's coalesced `moved` event: the visible pet
+    // must swap its panel reserve while the same pointer gesture is in flight.
+    if (placementChanged) this.emitState()
   }
 
   endDrag(): DragResult {

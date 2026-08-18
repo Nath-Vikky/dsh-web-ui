@@ -118,6 +118,23 @@ try {
   const initialViewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
   assert(initialViewport.width >= 224 && initialViewport.width <= 232, `desktop content should start collapsed: ${JSON.stringify(initialViewport)}`)
   assert(initialViewport.height >= 300 && initialViewport.height <= 308, `desktop content should expose the interaction panel: ${JSON.stringify(initialViewport)}`)
+  const primaryWorkArea = await electronApp.evaluate(({ screen }) => screen.getPrimaryDisplay().workArea)
+  const firstEdgePlacement = await page.evaluate(
+    ({ x, y }) => window.petDesktop.moveTo({ x, y }),
+    { x: primaryWorkArea.x + primaryWorkArea.width + 1_000, y: initial.bounds.y },
+  )
+  await page.evaluate(() => window.petDesktop.setDrawerOpen(true))
+  await page.evaluate(() => window.petDesktop.setDrawerOpen(false))
+  const edgePlacementAfterDrawerCycle = await page.evaluate(
+    ({ x, y }) => window.petDesktop.moveTo({ x, y }),
+    { x: primaryWorkArea.x + primaryWorkArea.width + 1_000, y: initial.bounds.y },
+  )
+  assert(
+    Math.abs(firstEdgePlacement.bounds.x - edgePlacementAfterDrawerCycle.bounds.x) <= 1
+      && Math.abs(firstEdgePlacement.bounds.width - edgePlacementAfterDrawerCycle.bounds.width) <= 1,
+    `first edge drag must match the post-drawer boundary: ${JSON.stringify({ firstEdgePlacement: firstEdgePlacement.bounds, edgePlacementAfterDrawerCycle: edgePlacementAfterDrawerCycle.bounds })}`,
+  )
+  await page.evaluate(({ x, y }) => window.petDesktop.moveTo({ x, y }), initial.bounds)
   const backgroundImage = await page.locator('.sprite').evaluate(element => getComputedStyle(element).backgroundImage)
   assert(backgroundImage.includes('spritesheet-'), 'pixel sprite asset must be painted')
   const hiddenPanelOpacity = await page.locator('.interaction-panel').evaluate(element => getComputedStyle(element).opacity)
@@ -162,7 +179,6 @@ try {
   await page.getByRole('combobox', { name: '桌宠大小' }).selectOption('1')
   await waitForDesktopState(page, state => state.scale === 1, 'pet scale restored')
 
-  const primaryWorkArea = await electronApp.evaluate(({ screen }) => screen.getPrimaryDisplay().workArea)
   const topPlacement = await page.evaluate(
     ({ x, y }) => window.petDesktop.moveTo({ x, y }),
     { x: initial.bounds.x, y: primaryWorkArea.y },
@@ -383,6 +399,7 @@ try {
     interactionPanelVisible: true,
     interactionPanelHoverOnly: true,
     dragSessionStable: true,
+    firstEdgeBoundaryStable: true,
     drawerAnchoredAfterDrag: true,
     drawerDoesNotSwitchAnimation: true,
     returnTargetGeneralized: true,
