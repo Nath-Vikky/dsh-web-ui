@@ -199,12 +199,14 @@ export function parsePetSnapshot(value: unknown): PetSnapshot {
     || !finiteNumber(affinity.pets) || !finiteNumber(affinity.feeds) || !finiteNumber(affinity.turns)
     || typeof affinity.petCooldown !== 'boolean' || typeof affinity.feedCooldown !== 'boolean'
     || !finiteNumber(treats.stocked) || !finiteNumber(treats.max)
-    || (value.bubble !== undefined && typeof value.bubble !== 'string')) {
+    || (value.bubble !== undefined && typeof value.bubble !== 'string')
+    || (value.whisper !== undefined && (typeof value.whisper !== 'string' || value.whisper === ''))) {
     throw new TypeError('invalid pet snapshot')
   }
   return {
     animation: value.animation as PetAnimation,
     ...(typeof value.bubble === 'string' ? { bubble: value.bubble } : {}),
+    ...(typeof value.whisper === 'string' ? { whisper: value.whisper } : {}),
     phase: value.phase,
     sessionActive: value.sessionActive,
     ...(sessions === undefined ? {} : { sessions }),

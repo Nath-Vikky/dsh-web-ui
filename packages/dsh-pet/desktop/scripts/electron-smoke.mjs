@@ -196,6 +196,7 @@ try {
   })
   await page.getByRole('combobox', { name: '桌宠大小' }).selectOption('1')
   await waitForDesktopState(page, state => state.scale === 1, 'pet scale restored')
+  await page.waitForFunction(() => innerWidth >= 224 && innerWidth <= 232 && innerHeight >= 300 && innerHeight <= 308)
 
   const topPlacement = await page.evaluate(
     ({ x, y }) => window.petDesktop.moveTo({ x, y }),
@@ -219,6 +220,7 @@ try {
       snapshot: {
         animation: 'running',
         bubble: '正在执行任务',
+        whisper: '测试全绿，悄悄开心一下',
         phase: 'tool',
         sessionActive: true,
         sessions: [
@@ -233,12 +235,33 @@ try {
       },
     })
   })
-  await page.getByRole('status', { name: '会话任务状态' }).getByText('正在执行任务').waitFor({ state: 'visible' })
+  const statusRegion = page.getByRole('status', { name: '桌宠与会话状态' })
+  await statusRegion.getByText('正在执行任务').waitFor({ state: 'visible' })
+  const whisperBubble = statusRegion.getByText('测试全绿，悄悄开心一下')
+  await whisperBubble.waitFor({ state: 'visible' })
+  assert(
+    await whisperBubble.evaluate(element => element.classList.contains('task-bubble-whisper')),
+    'inner whisper must use its distinct desktop bubble style',
+  )
   const bubbleViewportAfter = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
   assert(
     JSON.stringify(bubbleViewportAfter) === JSON.stringify(bubbleViewportBefore),
-    'task bubbles must overlay the pet surface without growing the window',
+    `task bubbles must overlay the pet surface without growing the window: ${JSON.stringify({
+      before: bubbleViewportBefore,
+      after: bubbleViewportAfter,
+    })}`,
   )
+  await page.evaluate(() => window.petDesktop.setDrawerOpen(true))
+  await page.waitForFunction(() => document.querySelector('.desktop-shell')?.classList.contains('drawer-open'))
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+  })
+  await page.locator('.drawer').hover()
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.interaction-panel')).opacity === '0')
+  const statusBubbleScreenshot = join(artifactDirectory, 'desktop-status-bubbles.png')
+  await page.locator('.pet-stage').screenshot({ path: statusBubbleScreenshot, omitBackground: true })
+  await page.evaluate(() => window.petDesktop.setDrawerOpen(false))
+  await page.waitForFunction(() => innerWidth >= 224 && innerWidth <= 232)
 
   const petModels = await page.evaluate(() => window.petDesktop.getModels())
   assert(petModels.some(model => model.id === 'builtin:whale'), 'built-in pet model must stay available')
@@ -411,6 +434,8 @@ try {
     clippedScaleChoicesRemoved: true,
     adaptiveInteractionPanel: true,
     taskStatusBubbleOverlay: true,
+    innerWhisperBubble: true,
+    statusBubbleScreenshot,
     pluginSwitchRequiresDsh: true,
     petModelMenuVisible: true,
     obsoleteDragHintRemoved: true,

@@ -685,6 +685,27 @@ h1 {
   background: rgba(131, 24, 67, 0.9);
 }
 
+.task-bubble-whisper {
+  border-style: dashed;
+  border-color: rgba(240, 171, 252, 0.62);
+  background: linear-gradient(150deg, rgba(88, 28, 135, 0.86), rgba(157, 23, 77, 0.8));
+  color: #f5d0fe;
+  font-style: italic;
+  animation: desktop-whisper-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.task-bubble-whisper::before {
+  content: '「';
+  margin-right: 1px;
+  opacity: 0.78;
+}
+
+.task-bubble-whisper::after {
+  content: '」';
+  margin-left: 1px;
+  opacity: 0.78;
+}
+
 .task-bubble-feed {
   background: rgba(7, 89, 133, 0.92);
 }
@@ -693,6 +714,17 @@ h1 {
   border-color: rgba(248, 113, 113, 0.72);
   background: rgba(127, 29, 29, 0.92);
   color: #fee2e2;
+}
+
+@keyframes desktop-whisper-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .pet-button {
@@ -757,7 +789,9 @@ h1 {
 
 @media (prefers-reduced-motion: reduce) {
   .drawer,
-  .interaction-panel {
+  .interaction-panel,
+  .task-bubble {
     transition: none;
+    animation: none;
   }
 }

@@ -554,7 +554,7 @@ export function App() {
         </div>
 
         {statusBubbles.length > 0 && (
-          <div className="task-bubbles" role="status" aria-live="polite" aria-label="会话任务状态">
+          <div className="task-bubbles" role="status" aria-live="polite" aria-label="桌宠与会话状态">
             {statusBubbles.map(bubble => (
               <div key={bubble.id} className={`task-bubble task-bubble-${bubble.kind}`} title={bubble.text}>
                 {bubble.text}

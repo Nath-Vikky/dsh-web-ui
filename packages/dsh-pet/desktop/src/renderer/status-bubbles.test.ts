@@ -37,8 +37,35 @@ describe('desktop status bubbles', () => {
     ])
   })
 
+  it('shows the pet whisper after the active session statuses', () => {
+    expect(desktopStatusBubbles({
+      ...snapshot,
+      sessions: [
+        { sessionId: 'session-1', animation: 'running', bubble: '正在调用工具', phase: 'tool' },
+      ],
+      whisper: '测试全绿，悄悄开心一下',
+    })).toEqual([
+      { id: 'session-1', text: '正在调用工具', kind: 'status' },
+      {
+        id: 'whisper:测试全绿，悄悄开心一下',
+        text: '测试全绿，悄悄开心一下',
+        kind: 'whisper',
+      },
+    ])
+  })
+
+  it('keeps the compatibility status beside a whisper on older session views', () => {
+    expect(desktopStatusBubbles({ ...snapshot, whisper: '再想一小会儿' })).toEqual([
+      { id: 'status', text: '正在思考', kind: 'status' },
+      { id: 'whisper:再想一小会儿', text: '再想一小会儿', kind: 'whisper' },
+    ])
+  })
+
   it('temporarily gives interaction feedback priority', () => {
-    expect(desktopStatusBubbles(snapshot, { text: '摸摸成功', kind: 'pet' })).toEqual([
+    expect(desktopStatusBubbles(
+      { ...snapshot, whisper: '这句暂时让摸摸反馈盖住' },
+      { text: '摸摸成功', kind: 'pet' },
+    )).toEqual([
       { id: 'feedback', text: '摸摸成功', kind: 'pet' },
     ])
   })

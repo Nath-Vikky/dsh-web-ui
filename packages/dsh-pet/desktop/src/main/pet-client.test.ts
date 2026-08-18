@@ -50,6 +50,8 @@ describe('desktop pet client', () => {
     })).toMatchObject({
       sessions: [{ sessionId: 'session-1', bubble: '正在调用工具', phase: 'tool' }],
     })
+    expect(parsePetSnapshot({ ...snapshot, whisper: '悄悄努力一下' }))
+      .toMatchObject({ whisper: '悄悄努力一下' })
     expect(parsePetSnapshot({
       ...snapshot,
       intent: {
@@ -64,6 +66,8 @@ describe('desktop pet client', () => {
     expect(() => parsePetSnapshot({ ...snapshot, affinity: { points: Number.NaN } })).toThrow('invalid pet snapshot')
     expect(() => parsePetSnapshot({ ...snapshot, sessions: [{ sessionId: '', bubble: 1 }] }))
       .toThrow('invalid pet session status')
+    expect(() => parsePetSnapshot({ ...snapshot, whisper: '' })).toThrow('invalid pet snapshot')
+    expect(() => parsePetSnapshot({ ...snapshot, whisper: 1 })).toThrow('invalid pet snapshot')
   })
 
   it('decodes fragmented SSE data records and ignores heartbeats', () => {

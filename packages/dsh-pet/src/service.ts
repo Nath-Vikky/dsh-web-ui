@@ -47,6 +47,7 @@ import {
   type PetManifest,
   type PetRegistry,
 } from './registry.ts'
+import { WHISPER_TTL_MS } from './chatter.ts'
 import {
   defaultPetStateConfig,
   PetStateMachine,
@@ -199,6 +200,12 @@ export interface PetStateView {
   companion?: PetDesktopSettings
   /** Renderer-neutral activity command; interaction responses always carry one. */
   intent?: PetIntent
+  /**
+   * The display session's fresh inner whisper (碎碎念), when one is within
+   * its TTL — short inner-voice copy woken by the model's own output,
+   * rendered by the client as a distinct whisper bubble.
+   */
+  whisper?: string
 }
 
 /** Result of `pet.interact`. */
@@ -220,6 +227,13 @@ interface SessionActivity {
   machine: PetStateMachine
   /** The session's most recent meaningful input (for display fallback). */
   lastInput?: PetStateInput
+  /** Latest inner whisper woken by this session's model output (碎碎念). */
+  whisper?: {
+    /** Whisper copy. */
+    text: string
+    /** Epoch ms when it appeared (view-side TTL applies). */
+    at: number
+  }
 }
 
 /**
@@ -240,6 +254,7 @@ export class PetService extends Service {
   private desktop: PetDesktopSettings
   private disposeActivity: (() => void) | undefined
   private presentationTimer: NodeJS.Timeout | undefined
+  private whisperTimer: NodeJS.Timeout | undefined
   private readonly stateListeners = new Set<PetStateListener>()
   /** Session whose most recent meaningful event currently drives the global pet. */
   private displaySession: Session | undefined
@@ -282,6 +297,7 @@ export class PetService extends Service {
     this.syncActivity()
     ctx.effect(() => () => {
       this.clearPresentationTimer()
+      this.clearWhisperTimer()
       this.stateListeners.clear()
     }, 'pet: state stream')
   }
@@ -424,7 +440,7 @@ export class PetService extends Service {
           const transition = projectOfficialEvent(event, runtime)
           if (transition === undefined) return
           runtime.officialEventsSeen = true
-          this.applyActivity(session, transition.input)
+          this.applyActivity(session, transition.input, transition.whisper)
           if (transition.completedTurn !== undefined) {
             this.rewardTurn(String(session.id), transition.completedTurn)
           }
@@ -448,6 +464,7 @@ export class PetService extends Service {
           } else {
             this.machine.onSessionDisposed()
           }
+          this.scheduleWhisperRefresh()
           this.publishState()
         }),
       ]
@@ -473,9 +490,12 @@ export class PetService extends Service {
    * the session becomes the host-global display session (most recent
    * meaningful event wins the sprite animation).
    */
-  private applyActivity(session: Session, input: PetStateInput): void {
+  private applyActivity(session: Session, input: PetStateInput, whisper?: string): void {
     const activity = this.activityOf(session)
     activity.lastInput = input
+    if (whisper !== undefined) {
+      activity.whisper = { text: whisper, at: Date.now() }
+    }
     activity.machine.onActivityStatus(input)
     activity.machine.onSessionActive()
     // Move to the tail so map order reads most-recent-last, then trim the
@@ -492,6 +512,7 @@ export class PetService extends Service {
     this.machine.onActivityStatus(input)
     this.machine.onSessionActive()
     this.schedulePresentationRefresh(input.phase)
+    this.scheduleWhisperRefresh()
     this.publishState()
   }
 
@@ -644,6 +665,15 @@ export class PetService extends Service {
         phase: perSession.phase,
       })
     }
+    // The display session's inner whisper rides the global view while fresh;
+    // an expired whisper simply stops appearing (the client's 2s poll drops it).
+    const displayActivity = this.displaySession === undefined
+      ? undefined
+      : this.sessionActivity.get(this.displaySession)
+    const whisper = displayActivity?.whisper
+    const freshWhisper = whisper !== undefined && Date.now() - whisper.at < WHISPER_TTL_MS
+      ? whisper.text
+      : undefined
     // Read-only: the ledger settles on economic events only, never on a read,
     // so polling the state cannot trigger pet.json writes.
     return {
@@ -652,6 +682,7 @@ export class PetService extends Service {
       phase: snapshot.phase,
       sessionActive: snapshot.sessionActive,
       sessions,
+      ...(freshWhisper === undefined ? {} : { whisper: freshWhisper }),
       affinity: this.ledger.affinityView(Date.now()),
       display: { ...this.ledger.snapshot.display },
       pet: {
@@ -698,6 +729,28 @@ export class PetService extends Service {
   private clearPresentationTimer(): void {
     if (this.presentationTimer !== undefined) clearTimeout(this.presentationTimer)
     this.presentationTimer = undefined
+  }
+
+  /** Publish the displayed whisper's expiry for push-only desktop SSE clients (Web also polls). */
+  private scheduleWhisperRefresh(): void {
+    this.clearWhisperTimer()
+    const activity = this.displaySession === undefined
+      ? undefined
+      : this.sessionActivity.get(this.displaySession)
+    const whisper = activity?.whisper
+    if (whisper === undefined) return
+    const remainingMs = WHISPER_TTL_MS - (Date.now() - whisper.at)
+    if (remainingMs <= 0) return
+    this.whisperTimer = setTimeout(() => {
+      this.whisperTimer = undefined
+      this.publishState()
+    }, remainingMs + 1)
+    this.whisperTimer.unref?.()
+  }
+
+  private clearWhisperTimer(): void {
+    if (this.whisperTimer !== undefined) clearTimeout(this.whisperTimer)
+    this.whisperTimer = undefined
   }
 
   private publishState(): void {

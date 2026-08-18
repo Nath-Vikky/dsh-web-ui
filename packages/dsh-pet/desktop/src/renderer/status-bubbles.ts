@@ -5,7 +5,7 @@ export const MAX_DESKTOP_STATUS_BUBBLES = 3
 export interface DesktopStatusBubble {
   id: string
   text: string
-  kind: 'status' | PetInteraction | 'error'
+  kind: 'status' | 'whisper' | PetInteraction | 'error'
 }
 
 /** Keep active task copy visible without expanding the draggable pet window. */
@@ -16,13 +16,14 @@ export function desktopStatusBubbles(
   if (feedback !== undefined) {
     return [{ id: 'feedback', text: feedback.text, kind: feedback.kind }]
   }
+  const visible: DesktopStatusBubble[] = []
   const sessions = snapshot?.sessions ?? []
   if (sessions.length > 0) {
-    const visible = sessions.slice(0, MAX_DESKTOP_STATUS_BUBBLES).map(session => ({
+    visible.push(...sessions.slice(0, MAX_DESKTOP_STATUS_BUBBLES).map(session => ({
       id: session.sessionId,
       text: session.bubble,
       kind: 'status' as const,
-    }))
+    })))
     if (sessions.length > MAX_DESKTOP_STATUS_BUBBLES) {
       visible.push({
         id: 'more',
@@ -30,9 +31,11 @@ export function desktopStatusBubbles(
         kind: 'status',
       })
     }
-    return visible
+  } else if (snapshot?.bubble !== undefined) {
+    visible.push({ id: 'status', text: snapshot.bubble, kind: 'status' })
   }
-  return snapshot?.bubble === undefined
-    ? []
-    : [{ id: 'status', text: snapshot.bubble, kind: 'status' }]
+  if (snapshot?.whisper !== undefined) {
+    visible.push({ id: `whisper:${snapshot.whisper}`, text: snapshot.whisper, kind: 'whisper' })
+  }
+  return visible
 }

@@ -111,6 +111,8 @@ export interface PetSessionStatus {
 export interface PetSnapshot {
   animation: PetAnimation
   bubble?: string
+  /** Short-lived inner voice projected from model output. */
+  whisper?: string
   phase: string
   sessionActive: boolean
   sessions?: PetSessionStatus[]
