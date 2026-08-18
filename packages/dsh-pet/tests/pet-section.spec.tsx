@@ -194,4 +194,50 @@ describe('PetSettingsSection', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/pet/runtime/cancel')).toBe(true)
     expect(scope.set).not.toHaveBeenCalledWith('desktopEnabled', true)
   })
+
+  it('reconnects to an active install after refresh without starting another download', async () => {
+    const runtime = {
+      version: '43.4.0',
+      platform: 'win32',
+      arch: 'x64',
+      installed: false,
+      managed: false,
+      source: 'npmmirror',
+    }
+    let statusReads = 0
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/pet/pets') return new Response('[]', { status: 200 })
+      if (url === '/api/pet/runtime' && init === undefined) {
+        statusReads += 1
+        if (statusReads === 1) {
+          return Response.json({
+            ...runtime,
+            phase: 'installing',
+          })
+        }
+        return Response.json({
+          ...runtime,
+          phase: 'ready',
+          installed: true,
+          managed: true,
+        })
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const scope = new FakeScope({ desktopEnabled: false })
+
+    render(<PetSettingsSection {...sectionProps(scope)} />)
+
+    expect(await screen.findByRole('dialog', { name: /install the desktop pet runtime/i })).toBeDefined()
+    expect(screen.getByText(/extracting and verifying/i)).toBeDefined()
+    expect(screen.getByText(/can take a few minutes/i)).toBeDefined()
+    expect(screen.queryByText('100%')).toBeNull()
+    await waitFor(() => {
+      expect(scope.set).toHaveBeenCalledWith('desktopEnabled', true)
+      expect(screen.queryByRole('dialog')).toBeNull()
+    }, { timeout: 2_000 })
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/pet/runtime/install')).toBe(false)
+  })
 })

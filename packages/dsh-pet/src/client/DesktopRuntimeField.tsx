@@ -93,6 +93,12 @@ export function DesktopRuntimeField(props: DesktopRuntimeFieldProps) {
       setRuntime(next)
       setSource(next.source)
       setCustomMirror(next.customMirror ?? '')
+      if (ACTIVE_PHASES.has(next.phase)) {
+        // A page refresh must reconnect to the Host-owned installation instead
+        // of presenting a fresh install action that invites a duplicate retry.
+        activateWhenReady.current = true
+        setDialogOpen(true)
+      }
     }, () => undefined)
     return () => { active = false }
   }, [])
@@ -177,6 +183,7 @@ export function DesktopRuntimeField(props: DesktopRuntimeFieldProps) {
   }
 
   const busy = runtime !== null && ACTIVE_PHASES.has(runtime.phase)
+  const installing = runtime?.phase === 'installing'
   const percent = Math.max(0, Math.min(1, runtime?.progress?.percent ?? 0))
   const error = requestError ?? runtime?.error
   const status = runtime?.phase === 'ready'
@@ -267,15 +274,21 @@ export function DesktopRuntimeField(props: DesktopRuntimeFieldProps) {
                 ? (
                   <div className={css.progressBlock}>
                     <div className={css.progressText}>
-                      <span>{props.t(runtime?.phase === 'installing' ? 'settings.runtimeInstalling' : 'settings.runtimeDownloading')}</span>
-                      <span>{Math.round(percent * 100)}%</span>
+                      <span>{props.t(installing ? 'settings.runtimeInstalling' : 'settings.runtimeDownloading')}</span>
+                      {installing ? null : <span>{Math.round(percent * 100)}%</span>}
                     </div>
-                    <progress className={css.progress} max={1} value={percent} />
-                    <span className={css.bytes}>
-                      {runtime?.progress?.total === null || runtime?.progress?.total === undefined
-                        ? formatBytes(runtime?.progress?.transferred ?? 0)
-                        : `${formatBytes(runtime.progress.transferred)} / ${formatBytes(runtime.progress.total)}`}
-                    </span>
+                    {installing
+                      ? <progress className={css.progress} max={1} />
+                      : <progress className={css.progress} max={1} value={percent} />}
+                    {installing
+                      ? <span className={css.bytes}>{props.t('settings.runtimeInstallingHint')}</span>
+                      : (
+                        <span className={css.bytes}>
+                          {runtime?.progress?.total === null || runtime?.progress?.total === undefined
+                            ? formatBytes(runtime?.progress?.transferred ?? 0)
+                            : `${formatBytes(runtime.progress.transferred)} / ${formatBytes(runtime.progress.total)}`}
+                        </span>
+                        )}
                   </div>
                 )
                 : null}

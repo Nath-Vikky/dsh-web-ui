@@ -119,6 +119,31 @@ describe('ElectronRuntimeManager', () => {
     expect(existsSync(join(root, 'install.lock'))).toBe(true)
   })
 
+  it('closes the atomic lock write and never removes a replacement lock', async () => {
+    const root = await temporaryRoot()
+    let finishDownload: ((archive: string) => void) | undefined
+    const manager = new ElectronRuntimeManager({
+      root,
+      platform: 'win32',
+      arch: 'x64',
+      downloadArtifact: () => new Promise(resolve => { finishDownload = resolve }),
+      extractArchive: async (_archive, destination) => { await fakeWindowsRuntime(destination) },
+    })
+
+    manager.startInstall({ source: 'official' })
+    await vi.waitFor(() => { expect(finishDownload).toBeTypeOf('function') })
+    const lockFile = join(root, 'install.lock')
+    const owned = JSON.parse(await readFile(lockFile, 'utf8')) as { token?: string }
+    expect(owned.token).toMatch(/^[0-9a-f-]{36}$/)
+
+    await rm(lockFile, { force: true })
+    await writeFile(lockFile, JSON.stringify({ pid: process.pid, token: 'replacement' }), 'utf8')
+    finishDownload!(join(root, 'fixture.zip'))
+    await manager.settled()
+
+    expect(JSON.parse(await readFile(lockFile, 'utf8'))).toMatchObject({ token: 'replacement' })
+  })
+
   it('uses a source-development executable without copying it into DSH_HOME', async () => {
     const root = await temporaryRoot()
     const fallbackExecutable = join(root, 'workspace-electron.exe')

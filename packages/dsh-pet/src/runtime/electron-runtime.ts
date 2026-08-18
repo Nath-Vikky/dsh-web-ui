@@ -2,12 +2,10 @@ import { existsSync, readFileSync } from 'node:fs'
 import {
   chmod,
   mkdir,
-  open,
   readFile,
   rename,
   rm,
   writeFile,
-  type FileHandle,
 } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
@@ -77,6 +75,10 @@ interface RuntimePreferences {
   schemaVersion: 1
   source: ElectronRuntimeMirror
   customMirror?: string
+}
+
+interface RuntimeInstallLock {
+  token: string
 }
 
 type RuntimeListener = (state: ElectronRuntimeView) => void
@@ -308,7 +310,7 @@ export class ElectronRuntimeManager {
 
   private async performInstall(selection: ElectronRuntimeMirrorSelection, signal: AbortSignal): Promise<void> {
     let stage: ElectronRuntimePhase = 'downloading'
-    let lock: FileHandle | undefined
+    let lock: RuntimeInstallLock | undefined
     let partial: string | undefined
     try {
       await mkdir(this.options.root, { recursive: true })
@@ -333,7 +335,12 @@ export class ElectronRuntimeManager {
       })
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
       stage = 'installing'
-      this.publish({ ...this.current, phase: 'installing', progress: { ...this.current.progress!, percent: 1 } })
+      this.publish({
+        ...this.baseState(selection),
+        phase: 'installing',
+        installed: false,
+        managed: false,
+      })
       const destination = this.installDirectory()
       partial = `${destination}.partial-${randomUUID()}`
       await mkdir(partial, { recursive: true })
@@ -360,8 +367,7 @@ export class ElectronRuntimeManager {
         await rm(partial, { recursive: true, force: true }).catch(() => undefined)
       }
       if (lock !== undefined) {
-        await lock.close().catch(() => undefined)
-        await rm(this.lockFile(), { force: true }).catch(() => undefined)
+        await this.releaseInstallLock(lock)
       }
     }
   }
@@ -398,26 +404,45 @@ export class ElectronRuntimeManager {
     return join(this.options.root, 'install.lock')
   }
 
-  private async acquireInstallLock(): Promise<FileHandle> {
+  private async acquireInstallLock(): Promise<RuntimeInstallLock> {
+    const file = this.lockFile()
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const token = randomUUID()
+      try {
+        // Passing a path to writeFile keeps the wx create atomic while Node
+        // owns and closes the descriptor before this method returns. Holding a
+        // FileHandle for the whole download made interrupted installs depend
+        // on garbage collection and is an error in Node 24+.
+        await writeFile(file, JSON.stringify({
+          pid: process.pid,
+          createdAt: new Date().toISOString(),
+          token,
+        }), { encoding: 'utf8', flag: 'wx' })
+        return { token }
+      } catch (error) {
+        if (!isRecord(error) || error.code !== 'EEXIST') throw error
+        let stale = true
+        try {
+          const raw = JSON.parse(await readFile(file, 'utf8')) as unknown
+          stale = !isRecord(raw) || typeof raw.pid !== 'number' || !processAlive(raw.pid)
+        } catch {
+          stale = true
+        }
+        if (!stale) throw new Error('runtime-install-busy')
+        await rm(file, { force: true })
+      }
+    }
+    throw new Error('runtime-install-busy')
+  }
+
+  private async releaseInstallLock(lock: RuntimeInstallLock): Promise<void> {
     const file = this.lockFile()
     try {
-      const handle = await open(file, 'wx')
-      await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }))
-      return handle
-    } catch (error) {
-      if (!isRecord(error) || error.code !== 'EEXIST') throw error
-      let stale = true
-      try {
-        const raw = JSON.parse(await readFile(file, 'utf8')) as unknown
-        stale = !isRecord(raw) || typeof raw.pid !== 'number' || !processAlive(raw.pid)
-      } catch {
-        stale = true
-      }
-      if (!stale) throw new Error('runtime-install-busy')
+      const raw = JSON.parse(await readFile(file, 'utf8')) as unknown
+      if (!isRecord(raw) || raw.token !== lock.token) return
       await rm(file, { force: true })
-      const handle = await open(file, 'wx')
-      await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }))
-      return handle
+    } catch {
+      // A missing/replaced lock belongs to recovery or another Host process.
     }
   }
 
