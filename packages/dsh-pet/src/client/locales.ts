@@ -20,6 +20,8 @@ export const zh = {
   'pet.state.loading': '宠物正在赶来…',
   'pet.state.error': '宠物迷路了（连接失败）',
   'pet.openSessionHint': '点击跳转到对应会话',
+  'pet.moreSessions': '展开其余 {n} 个会话的气泡',
+  'pet.collapseSessions': '收起会话气泡',
   // 一级设置页（settings.section 席位）。
   'settings.title': '宠物',
   'settings.description': '选择宠物，并分别控制网页与桌面端显示。',
@@ -94,6 +96,8 @@ export const en = {
   'pet.state.loading': 'The pet is on its way…',
   'pet.state.error': 'The pet is lost (connection failed)',
   'pet.openSessionHint': 'Click to jump to this session',
+  'pet.moreSessions': 'Expand {n} more session bubbles',
+  'pet.collapseSessions': 'Collapse session bubbles',
   // First-level settings section (the `settings.section` seat).
   'settings.title': 'Pet',
   'settings.description': 'Pick a pet and control its web and desktop presentations independently.',

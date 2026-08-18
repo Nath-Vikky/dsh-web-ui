@@ -225,6 +225,7 @@ try {
         sessionActive: true,
         sessions: [
           { sessionId: 'smoke-session', animation: 'running', bubble: '正在执行任务', phase: 'tool' },
+          { sessionId: 'smoke-session-2', animation: 'waiting', bubble: '正在等待模型', phase: 'waiting' },
         ],
         companion: { enabled: true, visible: true, alwaysOnTop: true, locked: false, scale: 1 },
         affinity: {
@@ -236,13 +237,20 @@ try {
     })
   })
   const statusRegion = page.getByRole('status', { name: '桌宠与会话状态' })
-  await statusRegion.getByText('正在执行任务').waitFor({ state: 'visible' })
   const whisperBubble = statusRegion.getByText('测试全绿，悄悄开心一下')
   await whisperBubble.waitFor({ state: 'visible' })
   assert(
     await whisperBubble.evaluate(element => element.classList.contains('task-bubble-whisper')),
-    'inner whisper must use its distinct desktop bubble style',
+    'inner whisper must re-tint the primary desktop bubble',
   )
+  assert(await statusRegion.getByText('正在执行任务').count() === 0, 'whisper must replace the primary status copy')
+  assert(await statusRegion.getByText('正在等待模型').count() === 0, 'extra sessions must start collapsed')
+  const moreBadge = statusRegion.locator('.task-bubble-more')
+  assert(await moreBadge.textContent() === '+1', 'collapsed session stack must expose a +N badge')
+  await statusRegion.hover()
+  await statusRegion.getByText('正在等待模型').waitFor({ state: 'visible' })
+  await moreBadge.click()
+  assert(await moreBadge.getAttribute('aria-expanded') === 'true', 'session badge must pin the expanded stack')
   const bubbleViewportAfter = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
   assert(
     JSON.stringify(bubbleViewportAfter) === JSON.stringify(bubbleViewportBefore),
@@ -434,7 +442,8 @@ try {
     clippedScaleChoicesRemoved: true,
     adaptiveInteractionPanel: true,
     taskStatusBubbleOverlay: true,
-    innerWhisperBubble: true,
+    unifiedWhisperBubble: true,
+    collapsedMultiSessionBubbles: true,
     statusBubbleScreenshot,
     pluginSwitchRequiresDsh: true,
     petModelMenuVisible: true,

@@ -19,7 +19,7 @@ import type {
 import { RendererMount } from './RendererMount.tsx'
 import { pointerDragTarget } from './drag-target.ts'
 import { animationForPetIntent, type SpriteAnimation } from './sprite-animation.ts'
-import { desktopStatusBubbles } from './status-bubbles.ts'
+import { desktopStatusStack } from './status-bubbles.ts'
 
 interface DragState {
   pointerId: number
@@ -70,6 +70,8 @@ export function App() {
   const [models, setModels] = useState<PetModelSummary[]>([])
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [bubbleStackPeek, setBubbleStackPeek] = useState(false)
+  const [bubbleStackPinned, setBubbleStackPinned] = useState(false)
   const [modelError, setModelError] = useState<string>()
   const [busy, setBusy] = useState<PetInteraction | 'rename' | 'connection' | 'model' | 'settings' | 'disable'>()
   const [renaming, setRenaming] = useState(false)
@@ -92,6 +94,13 @@ export function App() {
     void window.petDesktop.getPetState().then(setPet)
     return unsubscribe
   }, [])
+
+  useEffect(() => {
+    if ((pet.snapshot?.sessions?.length ?? 0) <= 1) {
+      setBubbleStackPeek(false)
+      setBubbleStackPinned(false)
+    }
+  }, [pet.snapshot?.sessions?.length])
 
   useEffect(() => {
     const intent = pet.snapshot?.intent
@@ -270,7 +279,8 @@ export function App() {
   const statusText = feedback?.text
     ?? snapshot?.bubble
     ?? (connected ? phaseLabels[snapshot?.phase ?? 'idle'] ?? '状态同步中' : pet.connection === 'connecting' ? '正在连接 DSH Pet' : 'DSH Pet 未连接')
-  const statusBubbles = desktopStatusBubbles(snapshot, feedback)
+  const bubbleStackOpen = bubbleStackPeek || bubbleStackPinned
+  const statusStack = desktopStatusStack(snapshot, feedback, bubbleStackOpen)
   const activeIntent = scheduledIntent ?? snapshot?.intent
   const animation = reactionAnimation
     ?? animationForPetIntent(activeIntent, snapshot?.animation ?? 'idle')
@@ -553,9 +563,36 @@ export function App() {
           )}
         </div>
 
-        {statusBubbles.length > 0 && (
-          <div className="task-bubbles" role="status" aria-live="polite" aria-label="桌宠与会话状态">
-            {statusBubbles.map(bubble => (
+        {statusStack.bubbles.length > 0 && (
+          <div
+            className={`task-bubbles ${bubbleStackOpen ? 'expanded' : 'collapsed'}`}
+            role="status"
+            aria-live="polite"
+            aria-label="桌宠与会话状态"
+            onPointerEnter={() => setBubbleStackPeek(true)}
+            onPointerLeave={() => setBubbleStackPeek(false)}
+          >
+            {statusStack.bubbles.map((bubble, index) => index === 0 && statusStack.additionalSessionCount > 0 ? (
+              <div key={bubble.id} className="task-bubble-anchor">
+                <div className={`task-bubble task-bubble-${bubble.kind}`} title={bubble.text}>
+                  {bubble.text}
+                </div>
+                <button
+                  className="task-bubble-more"
+                  type="button"
+                  title={bubbleStackOpen
+                    ? '收起会话气泡'
+                    : `展开其余 ${String(statusStack.additionalSessionCount)} 个会话的气泡`}
+                  aria-label={bubbleStackOpen
+                    ? '收起会话气泡'
+                    : `展开其余 ${String(statusStack.additionalSessionCount)} 个会话的气泡`}
+                  aria-expanded={bubbleStackOpen}
+                  onClick={() => setBubbleStackPinned(open => !open)}
+                >
+                  {bubbleStackOpen ? '×' : `+${String(statusStack.additionalSessionCount)}`}
+                </button>
+              </div>
+            ) : (
               <div key={bubble.id} className={`task-bubble task-bubble-${bubble.kind}`} title={bubble.text}>
                 {bubble.text}
               </div>

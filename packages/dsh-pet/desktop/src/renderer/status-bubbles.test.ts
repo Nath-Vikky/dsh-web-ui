@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { PetSnapshot } from '../shared/desktop-api.ts'
-import { desktopStatusBubbles } from './status-bubbles.ts'
+import { desktopStatusStack } from './status-bubbles.ts'
 
 const snapshot: PetSnapshot = {
   animation: 'waiting',
@@ -17,56 +17,78 @@ const snapshot: PetSnapshot = {
 
 describe('desktop status bubbles', () => {
   it('shows the compatibility status while a task is active', () => {
-    expect(desktopStatusBubbles(snapshot)).toEqual([
-      { id: 'status', text: '正在思考', kind: 'status' },
-    ])
+    expect(desktopStatusStack(snapshot)).toEqual({
+      bubbles: [{ id: 'status', text: '正在思考', kind: 'status' }],
+      additionalSessionCount: 0,
+    })
   })
 
-  it('shows recent session statuses and summarizes overflow', () => {
-    const sessions = Array.from({ length: 5 }, (_, index) => ({
+  it('collapses concurrent sessions behind the display session', () => {
+    const sessions = Array.from({ length: 3 }, (_, index) => ({
       sessionId: `session-${String(index)}`,
       animation: 'running' as const,
       bubble: `任务 ${String(index)}`,
       phase: 'tool',
     }))
-    expect(desktopStatusBubbles({ ...snapshot, sessions })).toEqual([
-      { id: 'session-0', text: '任务 0', kind: 'status' },
-      { id: 'session-1', text: '任务 1', kind: 'status' },
-      { id: 'session-2', text: '任务 2', kind: 'status' },
-      { id: 'more', text: '另有 2 个会话进行中', kind: 'status' },
-    ])
+    expect(desktopStatusStack({ ...snapshot, sessions })).toEqual({
+      bubbles: [{ id: 'session-0', text: '任务 0', kind: 'status' }],
+      additionalSessionCount: 2,
+    })
+
+    expect(desktopStatusStack({ ...snapshot, sessions }, undefined, true)).toEqual({
+      bubbles: [
+        { id: 'session-0', text: '任务 0', kind: 'status' },
+        { id: 'session-1', text: '任务 1', kind: 'status' },
+        { id: 'session-2', text: '任务 2', kind: 'status' },
+      ],
+      additionalSessionCount: 2,
+    })
   })
 
-  it('shows the pet whisper after the active session statuses', () => {
-    expect(desktopStatusBubbles({
+  it('lets the pet whisper take over the display session bubble', () => {
+    const whispering: PetSnapshot = {
       ...snapshot,
       sessions: [
         { sessionId: 'session-1', animation: 'running', bubble: '正在调用工具', phase: 'tool' },
+        { sessionId: 'session-2', animation: 'waiting', bubble: '正在等待回复', phase: 'waiting' },
       ],
       whisper: '测试全绿，悄悄开心一下',
-    })).toEqual([
-      { id: 'session-1', text: '正在调用工具', kind: 'status' },
-      {
+    }
+    expect(desktopStatusStack(whispering)).toEqual({
+      bubbles: [{
         id: 'whisper:测试全绿，悄悄开心一下',
         text: '测试全绿，悄悄开心一下',
         kind: 'whisper',
-      },
-    ])
+      }],
+      additionalSessionCount: 1,
+    })
+    expect(desktopStatusStack(whispering, undefined, true)).toEqual({
+      bubbles: [
+        {
+          id: 'whisper:测试全绿，悄悄开心一下',
+          text: '测试全绿，悄悄开心一下',
+          kind: 'whisper',
+        },
+        { id: 'session-2', text: '正在等待回复', kind: 'status' },
+      ],
+      additionalSessionCount: 1,
+    })
   })
 
-  it('keeps the compatibility status beside a whisper on older session views', () => {
-    expect(desktopStatusBubbles({ ...snapshot, whisper: '再想一小会儿' })).toEqual([
-      { id: 'status', text: '正在思考', kind: 'status' },
-      { id: 'whisper:再想一小会儿', text: '再想一小会儿', kind: 'whisper' },
-    ])
+  it('lets the whisper replace the compatibility status', () => {
+    expect(desktopStatusStack({ ...snapshot, whisper: '再想一小会儿' })).toEqual({
+      bubbles: [{ id: 'whisper:再想一小会儿', text: '再想一小会儿', kind: 'whisper' }],
+      additionalSessionCount: 0,
+    })
   })
 
   it('temporarily gives interaction feedback priority', () => {
-    expect(desktopStatusBubbles(
+    expect(desktopStatusStack(
       { ...snapshot, whisper: '这句暂时让摸摸反馈盖住' },
       { text: '摸摸成功', kind: 'pet' },
-    )).toEqual([
-      { id: 'feedback', text: '摸摸成功', kind: 'pet' },
-    ])
+    )).toEqual({
+      bubbles: [{ id: 'feedback', text: '摸摸成功', kind: 'pet' }],
+      additionalSessionCount: 0,
+    })
   })
 })

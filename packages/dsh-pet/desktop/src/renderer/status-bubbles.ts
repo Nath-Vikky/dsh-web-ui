@@ -1,41 +1,54 @@
 import type { PetInteraction, PetSnapshot } from '../shared/desktop-api.ts'
 
-export const MAX_DESKTOP_STATUS_BUBBLES = 3
-
 export interface DesktopStatusBubble {
   id: string
   text: string
   kind: 'status' | 'whisper' | PetInteraction | 'error'
 }
 
-/** Keep active task copy visible without expanding the draggable pet window. */
-export function desktopStatusBubbles(
+export interface DesktopStatusStack {
+  bubbles: DesktopStatusBubble[]
+  additionalSessionCount: number
+}
+
+/** Mirror the Web pet's single-voice bubble rules inside the fixed desktop window. */
+export function desktopStatusStack(
   snapshot: PetSnapshot | null | undefined,
   feedback?: { text: string; kind: PetInteraction | 'error' },
-): DesktopStatusBubble[] {
+  expanded = false,
+): DesktopStatusStack {
   if (feedback !== undefined) {
-    return [{ id: 'feedback', text: feedback.text, kind: feedback.kind }]
+    return {
+      bubbles: [{ id: 'feedback', text: feedback.text, kind: feedback.kind }],
+      additionalSessionCount: 0,
+    }
   }
-  const visible: DesktopStatusBubble[] = []
   const sessions = snapshot?.sessions ?? []
   if (sessions.length > 0) {
-    visible.push(...sessions.slice(0, MAX_DESKTOP_STATUS_BUBBLES).map(session => ({
-      id: session.sessionId,
-      text: session.bubble,
-      kind: 'status' as const,
-    })))
-    if (sessions.length > MAX_DESKTOP_STATUS_BUBBLES) {
-      visible.push({
-        id: 'more',
-        text: `另有 ${String(sessions.length - MAX_DESKTOP_STATUS_BUBBLES)} 个会话进行中`,
-        kind: 'status',
-      })
+    const visibleSessions = expanded ? sessions : sessions.slice(0, 1)
+    return {
+      bubbles: visibleSessions.map((session, index) => {
+        const whisper = index === 0 ? snapshot?.whisper : undefined
+        return {
+          id: whisper === undefined ? session.sessionId : `whisper:${whisper}`,
+          text: whisper ?? session.bubble,
+          kind: whisper === undefined ? 'status' : 'whisper',
+        }
+      }),
+      additionalSessionCount: sessions.length - 1,
     }
-  } else if (snapshot?.bubble !== undefined) {
-    visible.push({ id: 'status', text: snapshot.bubble, kind: 'status' })
   }
   if (snapshot?.whisper !== undefined) {
-    visible.push({ id: `whisper:${snapshot.whisper}`, text: snapshot.whisper, kind: 'whisper' })
+    return {
+      bubbles: [{ id: `whisper:${snapshot.whisper}`, text: snapshot.whisper, kind: 'whisper' }],
+      additionalSessionCount: 0,
+    }
   }
-  return visible
+  if (snapshot?.bubble !== undefined) {
+    return {
+      bubbles: [{ id: 'status', text: snapshot.bubble, kind: 'status' }],
+      additionalSessionCount: 0,
+    }
+  }
+  return { bubbles: [], additionalSessionCount: 0 }
 }
