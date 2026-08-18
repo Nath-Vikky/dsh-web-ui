@@ -12,9 +12,10 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import type { SettingsScope, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the settings-surface SlotMap merge (the 'settings.section' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import { PluginSettingsCard, ValueField, BooleanField, ChoiceField } from './PluginSettingsCard.tsx'
+import { PluginSettingsCard, ValueField, BooleanField, ChoiceField, type FieldProps } from './PluginSettingsCard.tsx'
 import { CardForm, booleanField, choiceField, numberField, type CardActions, type CardShell, type FieldState as CardFieldState } from './settings-form.ts'
 import sectionCss from './settings-section.module.css'
+import switchCss from './pet-settings.module.css'
 
 /** The pet's settings fields this card edits (the namespace's full schema). */
 export interface PetSettings {
@@ -22,6 +23,8 @@ export interface PetSettings {
   enabled?: boolean
   /** Master switch. */
   visible?: boolean
+  /** Start the managed desktop pet process with DSH. */
+  desktopEnabled?: boolean
   /** Scale of the rendered pet in px (sprite cell height). */
   size?: number
   /** Horizontal inset from the viewport right edge, px. */
@@ -38,6 +41,8 @@ export interface PetSettingsCardState extends CardShell {
   enabled: CardFieldState
   /** Master switch. */
   visible: CardFieldState
+  /** Managed desktop presentation switch. */
+  desktopEnabled: CardFieldState
   /** Pet scale. */
   size: CardFieldState
   /** Right inset. */
@@ -88,6 +93,7 @@ export class PetSettingsCardController {
     this.form = new CardForm(scope, [
       booleanField('enabled'),
       booleanField('visible'),
+      booleanField('desktopEnabled'),
       numberField('size'),
       numberField('right'),
       numberField('bottom'),
@@ -119,6 +125,7 @@ export class PetSettingsCardController {
       ...this.form.shell(),
       enabled: this.form.field('enabled'),
       visible: this.form.field('visible'),
+      desktopEnabled: this.form.field('desktopEnabled'),
       size: this.form.field('size'),
       right: this.form.field('right'),
       bottom: this.form.field('bottom'),
@@ -142,6 +149,42 @@ export class PetSettingsCardController {
   dispose(): void {
     this.form.dispose()
   }
+}
+
+/** Binary switch with the settings card's staged-save and inheritance semantics. */
+function SwitchField(props: FieldProps) {
+  const checked = props.text === 'true'
+  return (
+    <div className={switchCss.field}>
+      <div className={switchCss.head}>
+        <span>
+          <label className={switchCss.label} htmlFor={props.id}>{props.label}</label>
+          <span className={switchCss.hint}>{props.hint}</span>
+        </span>
+        <span className={switchCss.actions}>
+          {props.overridden
+            ? (
+              <button type="button" className={switchCss.reset} disabled={props.disabled} onClick={props.onReset}>
+                {props.resetLabel}
+              </button>
+            )
+            : null}
+          <button
+            id={props.id}
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            aria-label={props.label}
+            className={checked ? switchCss.switchOn : switchCss.switch}
+            disabled={props.disabled}
+            onClick={() => { props.onEdit(String(!checked)) }}
+          >
+            <span className={switchCss.thumb} />
+          </button>
+        </span>
+      </div>
+    </div>
+  )
 }
 
 /** Props the renderer binds for the pet settings card. */
@@ -208,6 +251,15 @@ export function PetSettingsCard(props: PetSettingsCardProps) {
         {...state.visible}
         onEdit={(text) => { props.edit('visible', text) }}
         onReset={() => { props.resetField('visible') }}
+      />
+      <SwitchField
+        id="settings-pet-desktop-enabled"
+        label={t('settings.desktopEnabled')}
+        hint={t('settings.desktopEnabledHint')}
+        {...fieldProps}
+        {...state.desktopEnabled}
+        onEdit={(text) => { props.edit('desktopEnabled', text) }}
+        onReset={() => { props.resetField('desktopEnabled') }}
       />
       <ValueField
         id="settings-pet-size"

@@ -11,6 +11,11 @@ describe('makePetSettingsSchema', () => {
       right: 24,
       bottom: 20,
       enabled: true,
+      desktopEnabled: false,
+      desktopVisible: true,
+      desktopAlwaysOnTop: true,
+      desktopLocked: false,
+      desktopScale: 1,
     })
   })
 

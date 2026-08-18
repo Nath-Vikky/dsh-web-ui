@@ -14,12 +14,25 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { PetService } from './service.ts'
+import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
+import type { PetService, PetSettingsSection } from './service.ts'
 import type { PetInteraction } from './affinity.ts'
+import {
+  authorizePetNativeRequest,
+  isPetNativeToken,
+  isTrustedPetBrowserRequest,
+} from './adapters/web/native-auth.ts'
 import { petEntryView, type PetEntry, type PetRegistry } from './registry.ts'
 
 /** Browser-facing base path of the pet API. */
 export const PET_API_PREFIX = '/api/pet'
+
+/** Standalone settings bridge; always mounted even when the pet is disabled. */
+export const PET_SETTINGS_API_PREFIX = `${PET_API_PREFIX}/settings`
+
+/** Authenticated loopback bridge consumed only by the managed desktop child. */
+export const PET_NATIVE_API_PREFIX = `${PET_API_PREFIX}/native`
+export const PET_SSE_HEARTBEAT_MS = 15_000
 
 /** Browser-facing base path of the pet asset routes ('/pet/<id>/...'). */
 export const PET_ASSET_PREFIX = '/pet'
@@ -57,6 +70,14 @@ function requireMethod(req: IncomingMessage, res: ServerResponse, method: string
   return false
 }
 
+/** Reject remote peers and requests that do not carry this Host boot's token. */
+function requireNative(req: IncomingMessage, res: ServerResponse, token: string): boolean {
+  const denial = authorizePetNativeRequest(req, token)
+  if (denial === undefined) return true
+  json(res, denial === 'NATIVE_LOOPBACK_REQUIRED' ? 403 : 401, { ok: false, error: denial })
+  return false
+}
+
 /** Read a JSON request body (bounded). */
 function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -87,11 +108,18 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
 }
 
 /** Wrap one async service call as a GET JSON route. */
-function getRoute(path: string, run: () => Promise<unknown>): WebRoute {
+function getRoute(
+  path: string,
+  run: () => Promise<unknown>,
+  nativeToken?: string,
+  authorize?: (req: IncomingMessage, res: ServerResponse) => boolean,
+): WebRoute {
   return {
     kind: 'exact',
     path,
     handler: (req: IncomingMessage, res: ServerResponse): void => {
+      if (nativeToken !== undefined && !requireNative(req, res, nativeToken)) return
+      if (authorize !== undefined && !authorize(req, res)) return
       if (!requireMethod(req, res, 'GET')) return
       run().then((value) => json(res, 200, value), (error) => {
         json(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
@@ -101,11 +129,18 @@ function getRoute(path: string, run: () => Promise<unknown>): WebRoute {
 }
 
 /** Wrap one async service call as a POST JSON route (body passed through). */
-function postRoute(path: string, run: (body: Record<string, unknown>) => Promise<unknown>): WebRoute {
+function postRoute(
+  path: string,
+  run: (body: Record<string, unknown>) => Promise<unknown>,
+  nativeToken?: string,
+  authorize?: (req: IncomingMessage, res: ServerResponse) => boolean,
+): WebRoute {
   return {
     kind: 'exact',
     path,
     handler: (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+      if (nativeToken !== undefined && !requireNative(req, res, nativeToken)) return Promise.resolve()
+      if (authorize !== undefined && !authorize(req, res)) return Promise.resolve()
       if (!requireMethod(req, res, 'POST')) return Promise.resolve()
       return readJsonBody(req).then((body) => {
         const record = (typeof body === 'object' && body !== null) ? body as Record<string, unknown> : {}
@@ -118,6 +153,129 @@ function postRoute(path: string, run: (body: Record<string, unknown>) => Promise
       }, (error) => {
         json(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
       })
+    },
+  }
+}
+
+/** Reject cross-site or non-loopback access to the standalone settings seam. */
+function requireTrustedBrowser(req: IncomingMessage, res: ServerResponse): boolean {
+  if (isTrustedPetBrowserRequest(req)) return true
+  json(res, 403, { ok: false, error: 'pet-settings-loopback-required' })
+  return false
+}
+
+const PET_SETTINGS_FIELDS: ReadonlySet<keyof PetSettingsSection> = new Set([
+  'enabled',
+  'visible',
+  'size',
+  'right',
+  'bottom',
+  'petId',
+  'desktopEnabled',
+  'desktopVisible',
+  'desktopAlwaysOnTop',
+  'desktopLocked',
+  'desktopScale',
+])
+
+/** Validate the deliberately tiny, top-level settings mutation vocabulary. */
+function parseSettingsMutation(body: Record<string, unknown>): {
+  ops: SettingsPathOp[]
+  expectedRevision?: number
+} | undefined {
+  if (!Array.isArray(body.ops)) return undefined
+  const expectedRevision = body.expectedRevision
+  if (expectedRevision !== undefined
+    && (typeof expectedRevision !== 'number' || !Number.isInteger(expectedRevision) || expectedRevision < 0)) {
+    return undefined
+  }
+  const ops: SettingsPathOp[] = []
+  for (const candidate of body.ops) {
+    if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return undefined
+    const op = candidate as Record<string, unknown>
+    if ((op.op !== 'set' && op.op !== 'unset')
+      || !Array.isArray(op.path)
+      || op.path.length !== 1
+      || typeof op.path[0] !== 'string'
+      || !PET_SETTINGS_FIELDS.has(op.path[0] as keyof PetSettingsSection)) {
+      return undefined
+    }
+    if (op.op === 'set') {
+      if (!Object.hasOwn(op, 'value')) return undefined
+      ops.push({ op: 'set', path: [op.path[0]], value: op.value })
+    } else {
+      ops.push({ op: 'unset', path: [op.path[0]] })
+    }
+  }
+  if (ops.length === 0) return undefined
+  return { ops, ...(typeof expectedRevision === 'number' ? { expectedRevision } : {}) }
+}
+
+/**
+ * Build the settings routes that remain reachable while the master switch is
+ * off. They expose only this plugin's namespace and delegate validation,
+ * persistence, and revision conflicts to the official Host settings seam.
+ */
+export function makePetSettingsRoutes(service: PetService): WebRoute[] {
+  return [
+    getRoute(PET_SETTINGS_API_PREFIX, () => service.settingsView(), undefined, requireTrustedBrowser),
+    postRoute(`${PET_SETTINGS_API_PREFIX}/mutate`, (body) => {
+      const request = parseSettingsMutation(body)
+      if (request === undefined) return Promise.reject(new Error('invalid-pet-settings-mutation'))
+      return service.mutateSettings(request.ops, request.expectedRevision)
+    }, undefined, requireTrustedBrowser),
+  ]
+}
+
+/** Push every Host-owned state change to one authenticated desktop process. */
+function eventStreamRoute(service: PetService, nativeToken: string): WebRoute {
+  return {
+    kind: 'exact',
+    path: `${PET_NATIVE_API_PREFIX}/events`,
+    handler: (req: IncomingMessage, res: ServerResponse): void => {
+      if (!requireNative(req, res, nativeToken) || !requireMethod(req, res, 'GET')) return
+      res.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        'connection': 'keep-alive',
+        'x-accel-buffering': 'no',
+      })
+      res.flushHeaders?.()
+
+      let closed = false
+      let heartbeat: NodeJS.Timeout | undefined
+      let unsubscribe = (): void => undefined
+      const close = (): void => {
+        if (closed) return
+        closed = true
+        if (heartbeat !== undefined) clearInterval(heartbeat)
+        unsubscribe()
+        req.off('close', close)
+      }
+      const send = (snapshot: Awaited<ReturnType<PetService['state']>>): void => {
+        if (closed) return
+        try {
+          res.write(`data: ${JSON.stringify(snapshot)}\n\n`)
+        } catch {
+          close()
+        }
+      }
+      req.once('close', close)
+      const disposeSubscription = service.subscribeState(send)
+      if (closed) {
+        disposeSubscription()
+        return
+      }
+      unsubscribe = disposeSubscription
+      heartbeat = setInterval(() => {
+        if (closed) return
+        try {
+          res.write(': heartbeat\n\n')
+        } catch {
+          close()
+        }
+      }, PET_SSE_HEARTBEAT_MS)
+      heartbeat.unref?.()
     },
   }
 }
@@ -238,8 +396,11 @@ function assetHandler(registry: PetRegistry): WebRoute['handler'] {
 }
 
 /** Build the full route family (API + assets) for one service. */
-export function makePetRoutes(deps: { service: PetService }): WebRoute[] {
-  const { service } = deps
+export function makePetRoutes(deps: { service: PetService, nativeToken?: string }): WebRoute[] {
+  const { service, nativeToken } = deps
+  if (nativeToken !== undefined && !isPetNativeToken(nativeToken)) {
+    throw new TypeError('invalid pet native token')
+  }
   const apiRoutes: WebRoute[] = [
     getRoute(PET_API_PREFIX + '/state', () => service.state()),
     getRoute(PET_API_PREFIX + '/pets', () => service.pets()),
@@ -277,7 +438,34 @@ export function makePetRoutes(deps: { service: PetService }): WebRoute[] {
     handler: assetHandler(service.registrySnapshot()),
   }
 
-  return [...apiRoutes, assetRoute]
+  const nativeRoutes: WebRoute[] = nativeToken === undefined
+    ? []
+    : [
+        getRoute(`${PET_NATIVE_API_PREFIX}/state`, () => service.state(), nativeToken),
+        eventStreamRoute(service, nativeToken),
+        postRoute(`${PET_NATIVE_API_PREFIX}/interact`, (body) => {
+          const kind = body.kind as PetInteraction | undefined
+          if (kind !== 'pet' && kind !== 'feed') return Promise.reject(new Error('invalid-kind'))
+          return service.interact(kind)
+        }, nativeToken),
+        postRoute(`${PET_NATIVE_API_PREFIX}/surface-settings`, (body) => {
+          const booleanKeys = ['enabled', 'visible', 'alwaysOnTop', 'locked'] as const
+          const invalidBoolean = booleanKeys.some(key => body[key] !== undefined && typeof body[key] !== 'boolean')
+          const scale = body.scale
+          const invalidScale = scale !== undefined
+            && (typeof scale !== 'number' || !Number.isFinite(scale) || scale < 0.5 || scale > 2)
+          if (invalidBoolean || invalidScale) return Promise.reject(new Error('invalid-desktop-settings'))
+          const patch: Parameters<PetService['setDesktopSettings']>[0] = {}
+          for (const key of booleanKeys) {
+            if (typeof body[key] === 'boolean') patch[key] = body[key]
+          }
+          if (typeof scale === 'number') patch.scale = scale
+          if (Object.keys(patch).length === 0) return Promise.reject(new Error('invalid-desktop-settings'))
+          return service.setDesktopSettings(patch)
+        }, nativeToken),
+      ]
+
+  return [...apiRoutes, ...nativeRoutes, assetRoute]
 }
 
 // Re-exported for the package surface (the registry owns the definition now).

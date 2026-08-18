@@ -8,10 +8,14 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
-    "build": "tsc -b && tsdown",
-    "test": "vitest run",
-    "typecheck": "tsc -b --pretty false && tsc -p tsconfig.test.json --pretty false",
-    "prepare": "tsdown --config tsdown.prepare.config.ts"
+    "build": "node scripts/clean-output.mjs && tsc -b --force && tsdown && pnpm desktop:build",
+    "test": "vitest run && vitest run --config desktop/vitest.config.mts",
+    "typecheck": "tsc -b --pretty false && tsc -p tsconfig.test.json --pretty false && tsc -p desktop/tsconfig.json --noEmit --pretty false",
+    "prepare": "node scripts/clean-output.mjs && tsc -b --force && tsdown --config tsdown.prepare.config.ts && pnpm desktop:build",
+    "desktop:build": "cd desktop && electron-vite build",
+    "desktop:dev": "cd desktop && electron-vite",
+    "desktop:smoke": "node desktop/scripts/electron-smoke.mjs",
+    "desktop:soak": "node desktop/scripts/electron-soak.mjs"
   },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -38,7 +42,10 @@
     "lib/**/*.d.ts.map",
     "src",
     "cordis.patch.yml",
-    "assets"
+    "assets",
+    "desktop/out",
+    "desktop/package.json",
+    "desktop/resources"
   ],
   "license": "Apache-2.0",
   "dsh": {
@@ -59,6 +66,9 @@
     "clsx": "^2.1.1",
     "schemastery": "^3.18.0"
   },
+  "optionalDependencies": {
+    "electron": "^43.4.0"
+  },
   "peerDependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
@@ -78,12 +88,15 @@
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.0",
+    "@vitejs/plugin-react": "^6.0.5",
+    "electron-vite": "^5.0.0",
     "jsdom": "29.1.1",
     "lightningcss": "^1.32.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
+    "vite": "^8.2.1",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^4.1.8"
   },

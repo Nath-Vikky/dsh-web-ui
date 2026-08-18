@@ -12,6 +12,7 @@ allowBuilds:
   # feature ships its own tunnel client — users install nothing).
   cloudflared: true
   cpu-features: true
+  electron: true
   esbuild: true
   node-pty: true
   ssh2: true

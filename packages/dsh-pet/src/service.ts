@@ -14,8 +14,10 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SettingsNamespace, SettingsPathOp, SettingsProvider } from '@deepseek-ai/dsh-settings'
 import type { AffinityConfig, PetAffinityView, PetInteraction } from './affinity.ts'
 import type { TreatConfig } from './treats.ts'
+import { createInteractionIntent, type PetIntent } from './core/intent.ts'
 import {
   emptyProjectionRuntime,
   isActivityPhase,
@@ -64,6 +66,8 @@ export interface PetConfig {
   persistDir?: string
   /** Master switch for the plugin (browser half + host routes). */
   enabled?: boolean
+  /** Desktop presentation defaults; the browser presentation stays independent. */
+  desktop?: Partial<PetDesktopSettings>
   /** Prebuilt registry (tests); defaults to scanning the package + user dirs. */
   registry?: PetRegistry
   /** Extra manifest entries composed by the embedding application. */
@@ -90,7 +94,46 @@ export interface PetSettingsSection {
   bottom: number
   /** Master switch for the plugin (browser half + host routes). */
   enabled?: boolean
+  /** Start the managed desktop presentation with this DSH Host. */
+  desktopEnabled?: boolean
+  /** Show the desktop window while keeping its process available. */
+  desktopVisible?: boolean
+  /** Keep the desktop window above ordinary windows. */
+  desktopAlwaysOnTop?: boolean
+  /** Prevent pointer dragging of the desktop window. */
+  desktopLocked?: boolean
+  /** Desktop surface scale, independent from the browser sprite size. */
+  desktopScale?: number
 }
+
+/** Desktop-only presentation settings stored by the DSH settings namespace. */
+export interface PetDesktopSettings {
+  enabled: boolean
+  visible: boolean
+  alwaysOnTop: boolean
+  locked: boolean
+  scale: number
+}
+
+/** Settings descriptor exposed by the pet's loopback-only browser bridge. */
+export interface PetSettingsView {
+  value: PetSettingsSection
+  base?: Partial<PetSettingsSection>
+  user?: Partial<PetSettingsSection>
+  revision: number
+  writable: boolean
+}
+
+export const DEFAULT_PET_DESKTOP_SETTINGS: PetDesktopSettings = {
+  enabled: false,
+  visible: true,
+  alwaysOnTop: true,
+  locked: false,
+  scale: 1,
+}
+
+export const PET_DESKTOP_SCALE_MIN = 0.5
+export const PET_DESKTOP_SCALE_MAX = 2
 
 /** Settings namespace of the pet capability. Spelled here rather than imported: the browser half spells the same value. */
 export const PET_SETTINGS_NAMESPACE = 'pet'
@@ -152,10 +195,18 @@ export interface PetStateView {
     /** Stock cap. */
     max: number
   }
+  /** Desktop presentation state; omitted by older Hosts. */
+  companion?: PetDesktopSettings
+  /** Renderer-neutral activity command; interaction responses always carry one. */
+  intent?: PetIntent
 }
 
 /** Result of `pet.interact`. */
-export type PetInteractResult = LedgerInteractionResult
+export interface PetInteractResult extends LedgerInteractionResult {
+  intent: PetIntent
+}
+
+type PetStateListener = (snapshot: PetStateView) => void
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -186,7 +237,10 @@ export class PetService extends Service {
   private readonly registry: PetRegistry
   private readonly persistDir: string
   private enabled: boolean
+  private desktop: PetDesktopSettings
   private disposeActivity: (() => void) | undefined
+  private presentationTimer: NodeJS.Timeout | undefined
+  private readonly stateListeners = new Set<PetStateListener>()
   /** Session whose most recent meaningful event currently drives the global pet. */
   private displaySession: Session | undefined
   /**
@@ -223,8 +277,13 @@ export class PetService extends Service {
     this.stateConfig = { ...defaultPetStateConfig, ...(config.state ?? {}) }
     this.machine = new PetStateMachine(this.stateConfig)
     this.enabled = config.enabled ?? true
+    this.desktop = { ...DEFAULT_PET_DESKTOP_SETTINGS, ...(config.desktop ?? {}) }
 
     this.syncActivity()
+    ctx.effect(() => () => {
+      this.clearPresentationTimer()
+      this.stateListeners.clear()
+    }, 'pet: state stream')
   }
 
   /** Whether the pet service consumes session activity while enabled. */
@@ -235,6 +294,49 @@ export class PetService extends Service {
   /** RPC: current pet state snapshot. */
   async state(): Promise<PetStateView> {
     return this.view()
+  }
+
+  /** Subscribe to the one Host-owned state used by browser polling and native SSE. */
+  subscribeState(listener: PetStateListener): () => void {
+    this.stateListeners.add(listener)
+    listener(this.view())
+    return () => { this.stateListeners.delete(listener) }
+  }
+
+  /** Current desktop lifecycle and surface preferences. */
+  desktopSettings(): PetDesktopSettings {
+    return { ...this.desktop, enabled: this.enabled && this.desktop.enabled }
+  }
+
+  /**
+   * Describe the registered pet settings namespace for the standalone browser
+   * card. This reads the same Host seam as the Web UI family bridge, so schema
+   * defaults, composition base values, user overrides, and revisions remain
+   * owned by DSH rather than duplicated in the browser.
+   */
+  async settingsView(): Promise<PetSettingsView> {
+    const settings = this.settingsProvider()
+    const descriptor = settings.describe({ redactSecrets: true })
+      .find(candidate => String(candidate.ns) === PET_SETTINGS_NAMESPACE)
+    if (descriptor === undefined) throw new Error('pet-settings-unavailable')
+    return {
+      value: descriptor.value as PetSettingsSection,
+      ...(descriptor.base === undefined ? {} : { base: descriptor.base as Partial<PetSettingsSection> }),
+      ...(descriptor.user === undefined ? {} : { user: descriptor.user as Partial<PetSettingsSection> }),
+      revision: descriptor.revision,
+      writable: settings.writable !== false,
+    }
+  }
+
+  /** Apply a revision-fenced settings mutation through the Host seam. */
+  async mutateSettings(ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<PetSettingsView> {
+    const settings = this.settingsProvider()
+    await settings.mutate(
+      PET_SETTINGS_NAMESPACE as SettingsNamespace,
+      ops,
+      expectedRevision,
+    )
+    return this.settingsView()
   }
 
   /** Current persisted display config (read-only view). */
@@ -277,13 +379,16 @@ export class PetService extends Service {
     this.ledger.setRemarks(entry.remarks)
     this.flush()
     this.syncSettingsFromPet()
+    this.publishState()
     return { ok: true, petId: entry.id }
   }
 
   /** Start or stop the session-activity listeners that drive the pet. */
   setEnabled(enabled: boolean): void {
+    if (this.enabled === enabled) return
     this.enabled = enabled
     this.syncActivity()
+    this.publishState()
   }
 
   private syncActivity(): void {
@@ -327,7 +432,10 @@ export class PetService extends Service {
         this.ctx.on('session/disposed', (session: Session) => {
           this.ledger.forgetSession(String(session.id))
           this.sessionActivity.delete(session)
-          if (session !== this.displaySession) return
+          if (session !== this.displaySession) {
+            this.publishState()
+            return
+          }
           // The display session is gone: fall back to the most recent
           // remaining session's last input, or settle to idle when none.
           this.displaySession = undefined
@@ -340,6 +448,7 @@ export class PetService extends Service {
           } else {
             this.machine.onSessionDisposed()
           }
+          this.publishState()
         }),
       ]
       return () => { for (const dispose of disposers) dispose() }
@@ -382,6 +491,8 @@ export class PetService extends Service {
     this.displaySession = session
     this.machine.onActivityStatus(input)
     this.machine.onSessionActive()
+    this.schedulePresentationRefresh(input.phase)
+    this.publishState()
   }
 
   /** RPC: pet or feed the pet. */
@@ -389,7 +500,30 @@ export class PetService extends Service {
     const nowMs = Date.now()
     const result = this.ledger.interact(kind, nowMs)
     if (this.ledger.takeDirty()) this.flush()
-    return result
+    this.publishState()
+    return {
+      ...result,
+      intent: createInteractionIntent(kind, result.reaction, nowMs, result.delta > 0),
+    }
+  }
+
+  /** Update desktop lifecycle/surface preferences through the Host settings document. */
+  async setDesktopSettings(
+    patch: Partial<PetDesktopSettings>,
+  ): Promise<{ ok: true; companion: PetDesktopSettings }> {
+    const next = this.normalizeDesktop({ ...this.desktop, ...patch })
+    const settings = this.ctx.get('settings', false) as { update(ns: string, patch: object): Promise<void> } | undefined
+    if (settings === undefined) throw new Error('pet-settings-unavailable')
+    await settings.update(PET_SETTINGS_NAMESPACE, {
+      desktopEnabled: next.enabled,
+      desktopVisible: next.visible,
+      desktopAlwaysOnTop: next.alwaysOnTop,
+      desktopLocked: next.locked,
+      desktopScale: next.scale,
+    })
+    this.desktop = next
+    this.publishState()
+    return { ok: true, companion: this.desktopSettings() }
   }
 
   /** RPC: show or hide the pet. */
@@ -397,6 +531,7 @@ export class PetService extends Service {
     this.ledger.setDisplay({ ...this.ledger.snapshot.display, visible })
     this.flush()
     this.syncSettingsFromPet()
+    this.publishState()
     return { ok: true, display: this.ledger.snapshot.display }
   }
 
@@ -409,6 +544,7 @@ export class PetService extends Service {
     this.ledger.setDisplay(next)
     this.flush()
     this.syncSettingsFromPet()
+    this.publishState()
     return { ok: true, display: this.ledger.snapshot.display }
   }
 
@@ -419,6 +555,7 @@ export class PetService extends Service {
     if (trimmed.length > PET_NAME_MAX_LENGTH) return { ok: false, error: 'name-too-long' }
     this.ledger.setPetName(this.selectedPetId(), trimmed)
     this.flush()
+    this.publishState()
     return { ok: true, name: trimmed }
   }
 
@@ -444,7 +581,15 @@ export class PetService extends Service {
     next.right = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.right)))
     next.bottom = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.bottom)))
     this.ledger.setDisplay(next)
+    this.desktop = this.normalizeDesktop({
+      enabled: section.desktopEnabled ?? DEFAULT_PET_DESKTOP_SETTINGS.enabled,
+      visible: section.desktopVisible ?? DEFAULT_PET_DESKTOP_SETTINGS.visible,
+      alwaysOnTop: section.desktopAlwaysOnTop ?? DEFAULT_PET_DESKTOP_SETTINGS.alwaysOnTop,
+      locked: section.desktopLocked ?? DEFAULT_PET_DESKTOP_SETTINGS.locked,
+      scale: section.desktopScale ?? DEFAULT_PET_DESKTOP_SETTINGS.scale,
+    })
     this.flush()
+    this.publishState()
   }
 
   /** Mirror the persisted display config into the settings document (best-effort). */
@@ -465,12 +610,16 @@ export class PetService extends Service {
 
   /** Award the turn reward once per completed turn (idempotent per session + turn). */
   private rewardTurn(sessionId: string, turn: number): void {
-    if (this.ledger.rewardTurn(sessionId, turn, Date.now())) this.flush()
+    if (!this.ledger.rewardTurn(sessionId, turn, Date.now())) return
+    this.flush()
+    this.publishState()
   }
 
   /** Preserve turn rewards for installations that only emit legacy activity. */
   private rewardLegacyTurn(): void {
-    if (this.ledger.rewardLegacyTurn(Date.now())) this.flush()
+    if (!this.ledger.rewardLegacyTurn(Date.now())) return
+    this.flush()
+    this.publishState()
   }
 
   private view(): PetStateView {
@@ -515,6 +664,51 @@ export class PetService extends Service {
         stocked: this.ledger.snapshot.treats.treats,
         max: this.ledger.treatMax,
       },
+      companion: this.desktopSettings(),
+    }
+  }
+
+  private normalizeDesktop(value: PetDesktopSettings): PetDesktopSettings {
+    return {
+      enabled: value.enabled,
+      visible: value.visible,
+      alwaysOnTop: value.alwaysOnTop,
+      locked: value.locked,
+      scale: Math.min(PET_DESKTOP_SCALE_MAX, Math.max(PET_DESKTOP_SCALE_MIN, value.scale)),
+    }
+  }
+
+  private settingsProvider(): SettingsProvider {
+    const settings = this.ctx.get('settings', false)
+    if (settings === undefined) throw new Error('pet-settings-unavailable')
+    return settings
+  }
+
+  /** Publish the time-based end of a completion pose to SSE consumers. */
+  private schedulePresentationRefresh(phase: PetStateInput['phase']): void {
+    this.clearPresentationTimer()
+    if (phase !== 'done') return
+    this.presentationTimer = setTimeout(() => {
+      this.presentationTimer = undefined
+      this.publishState()
+    }, this.stateConfig.celebrateMs + 1)
+    this.presentationTimer.unref?.()
+  }
+
+  private clearPresentationTimer(): void {
+    if (this.presentationTimer !== undefined) clearTimeout(this.presentationTimer)
+    this.presentationTimer = undefined
+  }
+
+  private publishState(): void {
+    if (this.stateListeners.size === 0) return
+    const snapshot = this.view()
+    for (const listener of [...this.stateListeners]) {
+      try {
+        listener(snapshot)
+      } catch {
+        // One closed native stream must not unwind Host session projection.
+      }
     }
   }
 

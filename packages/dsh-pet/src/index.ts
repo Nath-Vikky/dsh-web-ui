@@ -16,14 +16,22 @@ import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-sett
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import z from 'schemastery'
 import { PetService, PET_SETTINGS_NAMESPACE, type PetConfig, type PetSettingsSection } from './service.ts'
-import { makePetRoutes } from './routes.ts'
+import { makePetRoutes, makePetSettingsRoutes } from './routes.ts'
 import { loadPetRegistry, petPackageRoot } from './registry.ts'
 import { DISPLAY_INSET_MAX, DISPLAY_SIZE_MAX, DISPLAY_SIZE_MIN } from './persist.ts'
 import { mountOnce } from './mount-once.ts'
+import { createPetNativeToken } from './adapters/web/native-auth.ts'
+import { launchDesktopCompanion } from './desktop-companion.ts'
+import {
+  DEFAULT_PET_DESKTOP_SETTINGS,
+  PET_DESKTOP_SCALE_MAX,
+  PET_DESKTOP_SCALE_MIN,
+} from './service.ts'
 
 export { PetService, MAX_SESSION_BUBBLES } from './service.ts'
 export type {
   PetConfig,
+  PetDesktopSettings,
   PetInteractResult,
   PetSettingsSection,
   PetSessionView,
@@ -108,8 +116,11 @@ export type {
 
 export {
   makePetRoutes,
+  makePetSettingsRoutes,
   PET_API_PREFIX,
   PET_ASSET_PREFIX,
+  PET_NATIVE_API_PREFIX,
+  PET_SETTINGS_API_PREFIX,
 } from './routes.ts'
 
 /** Stable cordis plugin name (matches cordis.patch.yml insert id). */
@@ -134,6 +145,12 @@ export function makePetSettingsSchema(fallbackPetId: string) {
     bottom: z.number().step(1).min(0).max(DISPLAY_INSET_MAX).default(20),
     petId: z.string().default(fallbackPetId),
     enabled: z.boolean().default(true),
+    desktopEnabled: z.boolean().default(DEFAULT_PET_DESKTOP_SETTINGS.enabled),
+    desktopVisible: z.boolean().default(DEFAULT_PET_DESKTOP_SETTINGS.visible),
+    desktopAlwaysOnTop: z.boolean().default(DEFAULT_PET_DESKTOP_SETTINGS.alwaysOnTop),
+    desktopLocked: z.boolean().default(DEFAULT_PET_DESKTOP_SETTINGS.locked),
+    desktopScale: z.number().min(PET_DESKTOP_SCALE_MIN).max(PET_DESKTOP_SCALE_MAX)
+      .default(DEFAULT_PET_DESKTOP_SETTINGS.scale),
   })
 }
 
@@ -163,6 +180,11 @@ function applyImpl(ctx: Context, config: PetConfig = {}): void {
     bottom: service.display().bottom,
     petId: service.selectedPetId(),
     enabled: config.enabled ?? true,
+    desktopEnabled: config.desktop?.enabled ?? DEFAULT_PET_DESKTOP_SETTINGS.enabled,
+    desktopVisible: config.desktop?.visible ?? DEFAULT_PET_DESKTOP_SETTINGS.visible,
+    desktopAlwaysOnTop: config.desktop?.alwaysOnTop ?? DEFAULT_PET_DESKTOP_SETTINGS.alwaysOnTop,
+    desktopLocked: config.desktop?.locked ?? DEFAULT_PET_DESKTOP_SETTINGS.locked,
+    desktopScale: config.desktop?.scale ?? DEFAULT_PET_DESKTOP_SETTINGS.scale,
   }
   // The browser half talks to the pet through same-origin JSON endpoints and
   // loads each pet's atlas from the registry's own media route (RPC domains
@@ -170,8 +192,18 @@ function applyImpl(ctx: Context, config: PetConfig = {}): void {
   // pattern as dsh-remote-web-ui's /api/pair family). The routes are
   // registered while the plugin is enabled; toggling the setting off makes
   // the pet API disappear until it is re-enabled.
-  const routes = makePetRoutes({ service })
+  const nativeToken = createPetNativeToken()
+  const routes = makePetRoutes({ service, nativeToken })
+  const settingsRoutes = makePetSettingsRoutes(service)
+  ctx.effect(
+    () => {
+      const disposers = settingsRoutes.map(route => ctx.webServer.register(route))
+      return () => { for (const dispose of disposers) dispose() }
+    },
+    'pet: standalone settings routes',
+  )
   let disposeRoutes: (() => void) | undefined
+  let disposeDesktop: (() => void) | undefined
   const syncRoutes = (): void => {
     const enabled = current().enabled ?? true
     if (disposeRoutes === undefined && enabled) {
@@ -187,6 +219,25 @@ function applyImpl(ctx: Context, config: PetConfig = {}): void {
       disposeRoutes = undefined
     }
   }
+  const syncDesktop = (): void => {
+    const section = current()
+    const shouldRun = (section.enabled ?? true) && (section.desktopEnabled ?? false)
+    if (shouldRun && disposeDesktop === undefined) {
+      disposeDesktop = launchDesktopCompanion(
+        import.meta.url,
+        process.pid,
+        `http://127.0.0.1:${String(ctx.webServer.port)}`,
+        nativeToken,
+      )
+    } else if (!shouldRun && disposeDesktop !== undefined) {
+      disposeDesktop()
+      disposeDesktop = undefined
+    }
+  }
+  ctx.effect(() => () => {
+    disposeDesktop?.()
+    disposeDesktop = undefined
+  }, 'pet: desktop companion')
   installSettingsSection(
     ctx,
     settingsNamespace(PET_SETTINGS_NAMESPACE),
@@ -199,8 +250,10 @@ function applyImpl(ctx: Context, config: PetConfig = {}): void {
         service.applySettingsSection(section)
         service.setEnabled(section.enabled ?? true)
         syncRoutes()
+        syncDesktop()
       },
     },
   )
   syncRoutes()
+  syncDesktop()
 }

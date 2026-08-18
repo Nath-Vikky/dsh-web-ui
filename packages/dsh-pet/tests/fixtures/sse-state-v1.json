@@ -1,0 +1,36 @@
+{
+  "animation": "idle",
+  "phase": "idle",
+  "sessionActive": false,
+  "intent": {
+    "id": "0:idle:idle",
+    "createdAt": 1786866601341,
+    "priority": 0,
+    "ttlMs": 12000,
+    "expression": "neutral",
+    "motion": "idle",
+    "sourceTaskIds": [],
+    "interruptible": true
+  },
+  "affinity": {
+    "points": 0,
+    "rank": "幼鲸",
+    "rankEmoji": "*",
+    "pets": 0,
+    "feeds": 0,
+    "turns": 0,
+    "petCooldown": false,
+    "feedCooldown": false
+  },
+  "companion": {
+    "enabled": true,
+    "visible": true,
+    "alwaysOnTop": true,
+    "locked": false,
+    "scale": 1
+  },
+  "treats": {
+    "stocked": 0,
+    "max": 20
+  }
+}

@@ -2,8 +2,9 @@
 
 /**
  * The pet settings section contract: the 'settings.section' wrapper mounts the
- * card as a first-level settings page. The card is always open, so the enabled
- * switch renders as an Inherit/On/Off select without any expansion interaction.
+ * card as a first-level settings page. The card is always open; the plugin
+ * master keeps inherited tri-state semantics while desktop launch uses a
+ * dedicated binary switch staged into the same save flow.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -95,5 +96,8 @@ describe('PetSettingsSection', () => {
     expect(enabled.id).toBe('settings-pet-enabled')
     const options = Array.from(enabled.querySelectorAll('option')).map(option => option.textContent)
     expect(options).toEqual(['Inherit', 'On', 'Off'])
+    const desktop = screen.getByRole('switch', { name: /enable the desktop pet/i })
+    expect(desktop.id).toBe('settings-pet-desktop-enabled')
+    expect(desktop.getAttribute('aria-checked')).toBe('false')
   })
 })
